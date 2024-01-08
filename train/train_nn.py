@@ -236,7 +236,12 @@ def train_TonicNet(
             print("\tNEW BEST LOSS: %.3f" % ave_loss_epoch, "\n")
 
             if save_model:
-                __save_model(epoch, ave_loss_epoch, model, "TonicNet", epoch_acc)
+                if factorize:
+                    model_name = "TonicNet_Factorized"
+                else:
+                    model_name = "TonicNet"
+
+                __save_model(epoch, ave_loss_epoch, model, model_name, epoch_acc)
         else:
             print("\tLOSS DID NOT IMPROVE FROM %.3f" % best_val_loss, "\n")
 

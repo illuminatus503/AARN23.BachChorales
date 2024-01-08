@@ -1,7 +1,5 @@
 import itertools as it
 
-import tltorch
-
 import torch
 import torch.nn as nn
 
@@ -9,58 +7,6 @@ from torch.optim.optimizer import Optimizer
 from torch.nn.utils.rnn import PackedSequence
 
 from typing import *
-
-
-class TensorizedGRU(nn.GRU):
-    @overload
-    def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        num_layers: int = 1,
-        bias: bool = True,
-        batch_first: bool = False,
-        dropout: float = 0.0,
-        bidirectional: bool = False,
-        device=None,
-        dtype=None,
-    ) -> None:
-        ...
-
-    @overload
-    def __init__(self, *args, **kwargs):
-        ...
-
-    def __init__(self, *args, **kwargs):
-        if "proj_size" in kwargs:
-            raise ValueError(
-                "proj_size argument is only supported for LSTM, not RNN or GRU"
-            )
-        super().__init__("GRU", *args, **kwargs)
-
-    @classmethod
-    def from_gru(cls, gru: nn.GRU, rank=1.0, factorization="cp"):
-        layer = cls(
-            input_size=gru.input_size,
-            hidden_size=gru.hidden_size,
-            num_layers=gru.num_layers,
-            bias=gru.bias,
-            batch_first=gru.batch_first,
-            dropout=gru.dropout,
-            bidirectional=gru.bidirectional,
-        )
-
-        state_dict = gru.state_dict()
-        for key in state_dict:
-            if "weight" in key:
-                with torch.no_grad():
-                    state_dict[key] = tltorch.FactorizedTensor.from_tensor(
-                        state_dict[key],
-                        rank=rank,
-                        factorization=factorization,
-                    )
-
-        layer.load_state_dict(state_dict)
 
 
 class VariationalDropout(nn.Module):
