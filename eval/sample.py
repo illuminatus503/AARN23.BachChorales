@@ -1,10 +1,12 @@
-from train.models import TonicNet
-from torch import cat, multinomial
-from torch import cuda, load, device, tensor, zeros
-from torch.nn import LogSoftmax
 import pickle
 import random
 from copy import deepcopy
+
+from torch import cat, multinomial
+from torch import cuda, load, device, tensor, zeros
+from torch.nn import LogSoftmax
+
+from train.models import TonicNet
 
 """
 Functions to sample from trained models

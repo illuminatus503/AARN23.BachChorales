@@ -1,5 +1,4 @@
 import pickle
-
 from pathlib import Path
 
 import music21.stream as m_stream
