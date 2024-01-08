@@ -1,5 +1,4 @@
 train/training_set/*
 train/val_set/*
 *.pyc
-*.pt
 *.mid
