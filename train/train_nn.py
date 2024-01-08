@@ -12,7 +12,7 @@ from preprocessing.nn_dataset import (
 )
 from train.models import CrossEntropyTimeDistributedLoss
 from train.models import TonicNet, Transformer_Model
-from train.external import RAdam, Lookahead, OneCycleLR
+from train.external import Lookahead
 
 """
 File containing functions which train various neural networks defined in train.models
@@ -23,7 +23,6 @@ CV_PHASES = ["train", "val"]
 TRAIN_ONLY_PHASES = ["train"]
 
 
-# MARK:- TonicNet
 def TonicNet_lr_finder(train_emb_freq=3000, load_path=""):
     train_TonicNet(
         epochs=3,
@@ -94,7 +93,7 @@ def train_TonicNet(
     step_size = 3 * min(TRAIN_BATCHES, num_batches)
 
     if sanity_test:
-        base_optim = RAdam(model.parameters(), lr=base_lr)
+        base_optim = optim.RAdam(model.parameters(), lr=base_lr)
         optimiser = Lookahead(base_optim, k=5, alpha=0.5)
     else:
         optimiser = optim.SGD(model.parameters(), base_lr)
@@ -105,7 +104,7 @@ def train_TonicNet(
     print(f"min lr: {base_lr}, max_lr: {max_lr}, stepsize: {step_size}")
 
     if not sanity_test and not lr_range_test:
-        scheduler = OneCycleLR(
+        scheduler = optim.lr_scheduler.OneCycleLR(
             optimiser,
             max_lr,
             epochs=60,
@@ -294,7 +293,11 @@ def train_Transformer(
     sanity_test=False,
 ):
     model = Transformer_Model(
-        nb_tags=N_TOKENS, nb_layers=5, emb_dim=256, dropout=0.1, pe_dim=256
+        nb_tags=N_TOKENS,
+        nb_layers=5,
+        emb_dim=256,
+        dropout=0.1,
+        pe_dim=256,
     )
 
     if load_path != "":
@@ -325,7 +328,7 @@ def train_Transformer(
     step_size = 3 * min(TRAIN_BATCHES, num_batches)
 
     if sanity_test:
-        base_optim = RAdam(model.parameters(), lr=base_lr / 100)
+        base_optim = optim.RAdam(model.parameters(), lr=base_lr / 100)
         optimiser = Lookahead(base_optim, k=5, alpha=0.5)
     else:
         optimiser = optim.SGD(model.parameters(), base_lr)
@@ -336,7 +339,7 @@ def train_Transformer(
     print(f"min lr: {base_lr}, max_lr: {max_lr}, stepsize: {step_size}")
 
     if not sanity_test and not lr_range_test:
-        scheduler = OneCycleLR(
+        scheduler = optim.lr_scheduler.OneCycleLR(
             optimiser,
             max_lr,
             epochs=30,

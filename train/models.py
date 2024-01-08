@@ -1,21 +1,16 @@
 import torch
 import torch.nn as nn
+
 from preprocessing.nn_dataset import MAX_SEQ
 from preprocessing.nn_dataset import position_encoding_init
+
 from train.external import VariationalDropout
-from train.transformer import (
-    TransformerDecoder,
-    TransformerDecoderLayer,
-    TransformerEncoder,
-    TransformerEncoderLayer,
-)
 
 """
 File containing classes representing various Neural architectures
 """
 
 
-# MARK:- TonicNet
 class TonicNet(nn.Module):
     def __init__(
         self,
@@ -55,7 +50,6 @@ class TonicNet(nn.Module):
         )
 
         # design RNN
-
         input_size = self.nb_rnn_units
         if self.z_dim > 0:
             input_size += self.z_emb_size
@@ -161,11 +155,11 @@ class Transformer_Model(nn.Module):
 
         input_size = self.pe_dim + self.emb_dim
 
-        self.transformerLayerI = TransformerEncoderLayer(
+        self.transformerLayerI = nn.TransformerEncoderLayer(
             d_model=input_size, nhead=8, dropout=self.dropout, dim_feedforward=1024
         )
 
-        self.transformerI = TransformerEncoder(
+        self.transformerI = nn.TransformerEncoder(
             self.transformerLayerI,
             num_layers=self.nb_layers,
         )
@@ -174,11 +168,11 @@ class Transformer_Model(nn.Module):
 
         if not self.encoder_only:
             # design decoder
-            self.transformerLayerO = TransformerDecoderLayer(
+            self.transformerLayerO = nn.TransformerDecoderLayer(
                 d_model=input_size, nhead=8, dropout=self.dropout, dim_feedforward=1024
             )
 
-            self.transformerO = TransformerDecoder(
+            self.transformerO = nn.TransformerDecoder(
                 self.transformerLayerO,
                 num_layers=self.nb_layers,
             )

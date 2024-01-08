@@ -1,14 +1,13 @@
 from collections import namedtuple
 
-
-# MARK:- Instrument Data Objects
-
+# Voice object: instance of tuple with named fields
 Voice = namedtuple("Voice", ("instrumentId", "lowestNote", "highestNote"))
+
+# Instruments
 soprano_voice = Voice("soprano", 60, 81)
 alto_voice = Voice("alto", 53, 77)
 tenor_voice = Voice("tenor", 45, 72)
 bass_voice = Voice("bass", 36, 64)
-
 
 def get_instrument(inst_name):
     if not isinstance(inst_name, str):
@@ -36,9 +35,9 @@ def get_instrument(inst_name):
 
 def get_part_range(part):
     notes = part.pitches
-    midi = list(map(__get_midi, notes))
+    
+    # Get midi value of the notes
+    midi = list(map(lambda pitch: pitch.midi, notes))
+    
     return [min(midi), max(midi)]
 
-
-def __get_midi(pitch):
-    return pitch.midi
