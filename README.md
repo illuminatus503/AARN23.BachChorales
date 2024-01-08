@@ -1,17 +1,19 @@
 # TonicNet
 
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/js-fake-chorales-a-synthetic-dataset-of/music-modeling-on-jsb-chorales)](https://paperswithcode.com/sota/music-modeling-on-jsb-chorales?p=js-fake-chorales-a-synthetic-dataset-of-1)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/improving-polyphonic-music-models-with/music-modeling-on-jsb-chorales)](https://paperswithcode.com/sota/music-modeling-on-jsb-chorales?p=improving-polyphonic-music-models-with)
 
+Código del proyecto de la asignatura *Aprendizaje Automático y Redes Neuronales* (AARN) del grado en Ingeniería Informática, de la UPV/EHU (curso 2023-24). Proyecto de final de asignatura. 
+Desarrollado por ... (insertar autores).
 
-Accompanying repository for my paper: [Improving Polyphonic Music Models with Feature-Rich Encoding](https://arxiv.org/abs/1911.11775)
+El proyecto original está basado en el código de ..., que a su vez es el código del artículo ... de ....
 
-<b>Requirements:</b>
-- Python 3 (tested with 3.6.5)
-- Pytorch (tested with 1.2.0)
-- Music21
+<b>Requisitos:</b>
+- Python 3 (probado con la versión 3.11.7)
+- Pytorch (probado con la versión 2.1.2)
+- Music21 (probado con la versión 9.1.0)
+- midi2audio (probado con la versión 0.1.1)
+    - fluidsynth/jammy,now 2.2.5-1 amd64 (en Linux Mint 21.2 Victoria)
 
-<b>Prepare Dataset:</b>
+<b>Preparación del dataset:</b>
 
 To prepare the vanilla JSB Chorales dataset with canonical train/validation/test split:
 ```
