@@ -2,3 +2,6 @@ train/training_set/*
 train/val_set/*
 *.pyc
 *.mid
+
+.tltorch_build/*
+.pytest_cache/*

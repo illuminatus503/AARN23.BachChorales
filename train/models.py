@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 
-from preprocessing.nn_dataset import MAX_SEQ
-from preprocessing.nn_dataset import position_encoding_init
-
 from train.external import VariationalDropout
+from train.external import TensorizedGRU
+
+import tltorch
 
 """
 File containing classes representing various Neural architectures
@@ -39,11 +39,9 @@ class TonicNet(nn.Module):
 
     def __build_model(self):
         self.embedding = nn.Embedding(self.nb_tags, self.nb_rnn_units)
-
-        # Unused but key exists in state_dict
-        self.pos_emb = nn.Embedding(64, 0)
-
         self.z_embedding = nn.Embedding(80, self.z_emb_size)
+        # *Unused* but key exists in state_dict
+        self.pos_emb = nn.Embedding(64, 0)
 
         self.dropout_i = VariationalDropout(
             max(0.0, self.dropout - 0.2), batch_first=True
@@ -66,7 +64,7 @@ class TonicNet(nn.Module):
         # output layer which projects back to tag space
         self.hidden_to_tag = nn.Linear(input_size, self.nb_tags, bias=False)
 
-    def init_hidden(self):
+    def __init_hidden(self):
         # the weights are of the form (nb_layers, batch_size, nb_rnn_units)
         hidden_a = torch.randn(self.nb_layers, self.batch_size, self.nb_rnn_units)
 
@@ -75,6 +73,28 @@ class TonicNet(nn.Module):
 
         return hidden_a
 
+    def factorize_model(self):
+        # ! Tensorization of the embeedding layers
+        self.embedding = tltorch.FactorizedEmbedding.from_embedding(
+            self.embedding,
+            rank=0.1,  # 1/10 of the original params.
+        )
+        self.z_embedding = tltorch.FactorizedEmbedding.from_embedding(
+            self.z_embedding,
+            rank=0.1,  # 1/10 of the original params.
+        )
+
+        # ! Tensorization of the GRU
+        self.rnn = TensorizedGRU.from_gru(self.rnn, rank=0.1)
+
+        # ! Tensorization of the linear layer
+        self.hidden_to_tag = tltorch.FactorizedLinear.from_linear(
+            linear=self.hidden_to_tag,
+            rank=0.1,  # 1/10 of orig. params.
+            # factorization="blocktt",  # default: 'cp'
+            # checkpointing=True,  # default: False
+        )
+
     def forward(
         self, X, z=None, train_embedding=True, sampling=False, reset_hidden=True
     ):
@@ -82,7 +102,7 @@ class TonicNet(nn.Module):
         if not sampling:
             self.seq_len = X.shape[1]
             if reset_hidden:
-                self.hidden = self.init_hidden()
+                self.hidden = self.__init_hidden()
 
         self.embedding.weight.requires_grad = train_embedding
 
@@ -109,136 +129,6 @@ class TonicNet(nn.Module):
 
         # run through linear layer
         X = self.hidden_to_tag(X)
-
-        Y_hat = X
-        return Y_hat
-
-
-class Transformer_Model(nn.Module):
-    def __init__(
-        self,
-        nb_tags,
-        nb_layers=1,
-        pe_dim=0,
-        emb_dim=100,
-        batch_size=1,
-        seq_len=MAX_SEQ,
-        dropout=0.0,
-        encoder_only=True,
-    ):
-        super(Transformer_Model, self).__init__()
-
-        self.nb_layers = nb_layers
-        self.emb_dim = emb_dim
-        self.batch_size = batch_size
-        self.seq_len = seq_len
-        self.pe_dim = pe_dim
-        self.dropout = dropout
-
-        self.nb_tags = nb_tags
-
-        self.encoder_only = encoder_only
-
-        # build actual NN
-        self.__build_model()
-
-    def __build_model(self):
-        self.embedding = nn.Embedding(self.nb_tags, self.emb_dim)
-
-        if not self.encoder_only:
-            self.embedding2 = nn.Embedding(self.nb_tags, self.emb_dim)
-
-        self.pos_emb = position_encoding_init(MAX_SEQ, self.pe_dim)
-        self.pos_emb.requires_grad = False
-
-        self.dropout_i = nn.Dropout(self.dropout)
-
-        input_size = self.pe_dim + self.emb_dim
-
-        self.transformerLayerI = nn.TransformerEncoderLayer(
-            d_model=input_size, nhead=8, dropout=self.dropout, dim_feedforward=1024
-        )
-
-        self.transformerI = nn.TransformerEncoder(
-            self.transformerLayerI,
-            num_layers=self.nb_layers,
-        )
-
-        self.dropout_m = nn.Dropout(self.dropout)
-
-        if not self.encoder_only:
-            # design decoder
-            self.transformerLayerO = nn.TransformerDecoderLayer(
-                d_model=input_size, nhead=8, dropout=self.dropout, dim_feedforward=1024
-            )
-
-            self.transformerO = nn.TransformerDecoder(
-                self.transformerLayerO,
-                num_layers=self.nb_layers,
-            )
-
-            self.dropout_o = nn.Dropout(self.dropout)
-
-        # output layer which projects back to tag space
-        self.hidden_to_tag = nn.Linear(self.emb_dim + self.pe_dim, self.nb_tags)
-
-    def __pos_encode(self, p):
-        return self.pos_emb[p]
-
-    def forward(self, X, p, X2=None, train_embedding=True):
-        self.embedding.weight.requires_grad = train_embedding
-        if not self.encoder_only:
-            self.embedding2.weight.requires_grad = train_embedding
-
-        I = X
-
-        self.mask = (torch.triu(torch.ones(self.seq_len, self.seq_len)) == 1).transpose(
-            0, 1
-        )
-        self.mask = (
-            self.mask.float()
-            .masked_fill(self.mask == 0, float("-inf"))
-            .masked_fill(self.mask == 1, float(0.0))
-        )
-
-        if torch.cuda.is_available():
-            self.mask = self.mask.cuda()
-
-        # ---------------------
-        # Combine inputs
-        X = self.embedding(I)
-        X = X.view(self.seq_len, self.batch_size, -1)
-
-        if self.pe_dim > 0:
-            P = self.__pos_encode(p)
-            P = P.view(self.seq_len, self.batch_size, -1)
-            X = torch.cat((X, P), 2)
-
-        X = self.dropout_i(X)
-
-        # Run through transformer encoder
-
-        M = self.transformerI(X, mask=self.mask)
-        M = self.dropout_m(M)
-
-        if not self.encoder_only:
-            # ---------------------
-            # Decoder stack
-            X = self.embedding2(X2)
-            X = X.view(self.seq_len, self.batch_size, -1)
-
-            if self.pe_dim > 0:
-                X = torch.cat((X, P), 2)
-
-            X = self.dropout_i(X)
-
-            X = self.transformerO(X, M, tgt_mask=self.mask, memory_mask=None)
-            X = self.dropout_o(X)
-
-            # run through linear layer
-            X = self.hidden_to_tag(X)
-        else:
-            X = self.hidden_to_tag(M)
 
         Y_hat = X
         return Y_hat

@@ -5,8 +5,9 @@ from pathlib import Path
 from midi2audio import FluidSynth
 
 from preprocessing.nn_dataset import bach_chorales_classic
+from preprocessing.nn_dataset import TRAIN_BATCHES
 
-from train.train_nn import train_TonicNet, TonicNet_lr_finder, TonicNet_sanity_test
+from train.train_nn import train_TonicNet
 from train.train_nn import CrossEntropyTimeDistributedLoss
 from train.models import TonicNet
 
@@ -35,13 +36,18 @@ def main():
         usage=USAGE_STR,
     )
 
-    parser.add_argument("-t", "--train", action="store_true")
-    parser.add_argument('--filepath', default=None)
-    parser.add_argument("-p", "--plot", action="store_true")
+    parser.add_argument("-t", "--train", action="store_true")  # train flag
+    parser.add_argument("-m", "--model", type=str, default="")  # model path
+    parser.add_argument("--save", action="store_true")  # save model flag
+    parser.add_argument("-f", "--factorize", action="store_true")
+
     parser.add_argument("-lr", "--find_lr", action="store_true")
     parser.add_argument("-st", "--sanity_test", action="store_true")
     parser.add_argument("-s", "--sample", default=1, type=int)
     parser.add_argument("-e", "--eval_nn", action="store_true")
+
+    parser.add_argument("-p", "--plot", action="store_true")
+
     parser.add_argument("-v", "--version", action="store_true")
 
     parser.add_argument("--jsf", default=None, choices=["all", "only", "fake", None])
@@ -66,21 +72,56 @@ def main():
                     continue
 
     if args.train:
-        # TODO: add filename
-        train_TonicNet(3000, shuffle_batches=1, train_emb_freq=1, load_path="")
+        # Train, from pretrained or not
+        train_TonicNet(
+            epochs=3000,
+            shuffle_batches=1,
+            train_emb_freq=1,
+            load_path=Path(args.model) if args.model else "",
+            factorize=args.factorize,
+            save_model=args.save,
+        )
+
     elif args.plot:
+        # Plot loss and accuracy curves
         plot_loss_acc_curves()
+
     elif args.find_lr:
-        TonicNet_lr_finder(train_emb_freq=1, load_path="")
+        # Find optimal learning rate, from pretrained or not
+        train_TonicNet(
+            epochs=3,
+            save_model=False,
+            load_path=Path(args.model) if args.model else "",
+            shuffle_batches=True,
+            num_batches=TRAIN_BATCHES,
+            val=False,
+            train_emb_freq=1,
+            lr_range_test=True,
+            factorize=args.factorize,
+        )
+
     elif args.sanity_test:
-        TonicNet_sanity_test(num_batches=1, train_emb_freq=1)
+        # Sanity check, with one batch. Pretrained or not.
+        train_TonicNet(
+            epochs=200,
+            save_model=False,
+            load_path=Path(args.model) if args.model else "",
+            shuffle_batches=False,
+            num_batches=1,
+            val=1,
+            train_emb_freq=3000,
+            lr_range_test=False,
+            sanity_test=True,
+            factorize=args.factorize,
+        )
+
     elif args.sample > 0:
         os.makedirs(Path("eval/chorales/raw_mid"), exist_ok=True)
         os.makedirs(Path("eval/chorales/audio"), exist_ok=True)
 
         for n in range(args.sample):
             x = sample_TonicNet_random(
-                load_path="eval/TonicNet_epoch-56_loss-0.328_acc-90.750.pt",
+                load_path=Path("eval/TonicNet_epoch-56_loss-0.328_acc-90.750.pt"),
                 temperature=1.0,
             )
 
@@ -98,13 +139,15 @@ def main():
             )
 
     elif args.eval_nn:
+        # Evaluate a pretrained model
         eval_on_test_set(
-            "eval/TonicNet_epoch-58_loss-0.317_acc-90.928.pt",
+            Path("eval/TonicNet_epoch-58_loss-0.317_acc-90.928.pt"),
             TonicNet(nb_tags=98, z_dim=32, nb_layers=3, nb_rnn_units=256, dropout=0.0),
             CrossEntropyTimeDistributedLoss(),
             set="test",
             notes_only=True,
         )
+
     elif args.version:
         print(VERSION_STR)
 
