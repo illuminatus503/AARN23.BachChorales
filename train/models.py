@@ -47,13 +47,13 @@ class TonicNet(nn.Module):
             max(0.0, self.dropout - 0.2), batch_first=True
         )
 
-        # design RNN
-        input_size = self.nb_rnn_units
+        # design RNN (save params. for later)
+        self.input_size = self.nb_rnn_units
         if self.z_dim > 0:
-            input_size += self.z_emb_size
+            self.input_size += self.z_emb_size
 
         self.rnn = nn.GRU(
-            input_size=input_size,
+            input_size=self.input_size,
             hidden_size=self.nb_rnn_units,
             num_layers=self.nb_layers,
             batch_first=True,
@@ -62,7 +62,7 @@ class TonicNet(nn.Module):
         self.dropout_o = VariationalDropout(self.dropout, batch_first=True)
 
         # output layer which projects back to tag space
-        self.hidden_to_tag = nn.Linear(input_size, self.nb_tags, bias=False)
+        self.hidden_to_tag = nn.Linear(self.input_size, self.nb_tags, bias=False)
 
     def __init_hidden(self):
         # the weights are of the form (nb_layers, batch_size, nb_rnn_units)

@@ -1,5 +1,8 @@
 import torch
 from torch import nn
+
+import tltorch
+
 from t3nsor.layers import TTLinear
 
 from .rnn_utils import ActivGradLogger, tt_shape
@@ -10,6 +13,7 @@ from .tt_linearset import TTLinearSet
 class GRUCell(nn.Module):
     def __init__(self, input_size, hidden_size, bias, device):
         super(GRUCell, self).__init__()
+
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bias = bias
