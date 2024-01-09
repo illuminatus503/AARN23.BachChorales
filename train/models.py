@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from train.external import VariationalDropout
-from train.external import TensorizedGRU
+from train.factorized_gru import FactorizedGRU
 
 import tltorch
 
@@ -61,7 +61,7 @@ class TonicNet(nn.Module):
         #     dropout=self.dropout,
         # )
 
-        self.rnn = TensorizedGRU(
+        self.rnn = FactorizedGRU(
             input_size=self.input_size,
             hidden_size=self.nb_rnn_units,
             num_layers=self.nb_layers,
@@ -95,7 +95,7 @@ class TonicNet(nn.Module):
         )
 
         # ! Tensorization of the GRU
-        self.rnn.factorize(rank=0.1, factorization="blocktt")
+        self.rnn.factorize(rank=1)
 
         # ! Tensorization of the linear layer
         self.hidden_to_tag = tltorch.FactorizedLinear.from_linear(
