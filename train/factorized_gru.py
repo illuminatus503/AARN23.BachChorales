@@ -6,6 +6,84 @@ import tltorch
 from typing import *
 
 
+class LinearlyFactorizedGRUCell(nn.RNNCellBase):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+        rank="same",
+        factorization="blocktt",
+        implementation="factorized",
+        checkpointing=True,
+    ) -> None:
+        factory_kwargs = {"device": device, "dtype": dtype}
+        super().__init__(input_size, hidden_size, bias, num_chunks=3, **factory_kwargs)
+
+        self.bias = bias
+
+        self.device = device
+        self.dtype = dtype
+
+        self.rank = rank
+        self.factorization = factorization
+        self.implementation = implementation
+
+        # Factorize all weights
+        self.factorize()
+
+    def factorize(self):
+        # TODO: set default weights & biases from the model
+
+        # Declare the weights
+        _linear_ih = nn.Linear(
+            *self.weight_ih.shape, bias=self.bias, device=self.device, dtype=self.dtype
+        )
+        _weight_ih = tltorch.FactorizedLinear.from_linear(
+            _linear_ih,
+            rank=self.rank,
+            auto_tensorize=True,
+            bias=self.bias,
+            factorization=self.factorization,
+            implementation=self.implementation,
+            checkpointing=self.checkpointing,
+        )
+        self.weight_ih = nn.Parameter(_weight_ih)
+
+        _linear_hh = nn.Linear(
+            *self.weight_hh, bias=self.bias, device=self.device, dtype=self.dtype
+        )
+        _weight_hh = tltorch.FactorizedLinear.from_linear(
+            _linear_hh,
+            rank=self.rank,
+            auto_tensorize=True,
+            bias=self.bias,
+            factorization=self.factorization,
+            implementation=self.implementation,
+            checkpointing=self.checkpointing,
+        )
+        self.weight_hh = nn.Parameter(_weight_hh)
+
+    def gru_cell(self, x, hx):
+        x = x.view(-1, x.size(1))
+
+        gate_x = self.weight_ih(x)
+        gate_h = self.weight_hh(hx)
+
+        i_r, i_i, i_n = gate_x.chunk(3, 1)
+        h_r, h_i, h_n = gate_h.chunk(3, 1)
+
+        resetgate = F.sigmoid(i_r + h_r)
+        inputgate = F.sigmoid(i_i + h_i)
+        newgate = F.tanh(i_n + (resetgate * h_n))
+
+        hy = newgate + inputgate * (hx - newgate)
+
+        return hy
+
+
 class GRUBase(nn.RNNBase):
     """A Base module for GRU. Inheriting from GRUBase enables compatibility with torch.compile."""
 
