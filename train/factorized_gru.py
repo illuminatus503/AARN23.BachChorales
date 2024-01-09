@@ -10,7 +10,7 @@ class GRUBase(nn.RNNBase):
     """A Base module for GRU. Inheriting from GRUBase enables compatibility with torch.compile."""
 
     def __init__(self, *args, **kwargs):
-        return super().__init__("GRU", *args, **kwargs)
+        super().__init__("GRU", *args, **kwargs)
 
 
 for attr in nn.GRU.__dict__:
@@ -52,31 +52,32 @@ class FactorizedGRU(GRUBase):
         self,
         weight_ih: torch.Tensor,
         weight_hh: torch.Tensor,
-        rank: int | float,
+        rank: Union[int, float],
         order: int,
         factorization: str,
     ):
-        # ! Factorize the GRU weight
-        # Get the tensorized shape for weight_ih (input + hidden)
+        # Factorizar el peso GRU (weight_ih)
         tensor_ih_shape = tltorch.utils.get_tensorized_shape(
-            weight_ih.shape[1], weight_ih.shape[0], min_dim=2, order=order
+            in_features=weight_ih.shape[0],
+            out_features=weight_ih.shape[1],
+            min_dim=2,
+            order=order,
         )
-        _weight_ih = tltorch.TensorizedTensor.new(
-            tensor_ih_shape, rank=rank, factorization=factorization
+        _weight_ih = tltorch.TensorizedTensor.from_matrix(
+            weight_ih, *tensor_ih_shape, rank, factorization
         )
-        _weight_ih.init_from_matrix(weight_ih)
         _weight_ih = nn.Parameter(weight_ih)
 
-        # ! Factorize the GRU weight_hh
-        # Get the tensorized shape for weight_hh (hidden + hidden)
+        # Factorizar el peso GRU (weight_hh)
         tensor_hh_shape = tltorch.utils.get_tensorized_shape(
-            weight_hh.shape[1], weight_hh.shape[0], min_dim=2, order=order
+            in_features=weight_hh.shape[0],
+            out_features=weight_hh.shape[1],
+            min_dim=2,
+            order=order,
         )
-
-        _weight_hh = tltorch.TensorizedTensor.new(
-            tensor_hh_shape, rank=rank, factorization=factorization
+        _weight_hh = tltorch.TensorizedTensor.from_matrix(
+            weight_hh, *tensor_hh_shape, rank, factorization
         )
-        _weight_hh.init_from_matrix(weight_hh)
         _weight_hh = nn.Parameter(weight_hh)
 
         return _weight_ih, _weight_hh

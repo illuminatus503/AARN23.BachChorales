@@ -95,7 +95,7 @@ class TonicNet(nn.Module):
         )
 
         # ! Tensorization of the GRU
-        self.rnn.factorize(rank=1)
+        self.rnn.factorize(rank=0.01, factorization="tucker")
 
         # ! Tensorization of the linear layer
         self.hidden_to_tag = tltorch.FactorizedLinear.from_linear(
