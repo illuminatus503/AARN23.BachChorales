@@ -12,45 +12,19 @@ import tltorch
 from typing import *
 
 
-class TensorizedGRU(nn.Module):
-    @classmethod
-    def from_gru(cls, gru: nn.GRU, rank="same", factorization="tt"):
-        instance = cls(
-            gru.input_size,
-            gru.hidden_size,
-            gru.num_layers,
-            gru.bias,
-            gru.batch_first,
-            gru.dropout,
-            gru.bidirectional,
-        )
+class GRUBase(nn.RNNBase):
+    """A Base module for GRU. Inheriting from GRUBase enables compatibility with torch.compile."""
 
-        instance.weight_ih = []
-        instance.weight_hh = []
-        instance.bias_ih = []
-        instance.bias_hh = []
+    def __init__(self, *args, **kwargs):
+        return super().__init__("GRU", *args, **kwargs)
 
-        for layer in range(gru.num_layers):
-            weights = gru._all_weights[layer]
 
-            instance.weight_ih.append(
-                tltorch.FactorizedTensor.from_tensor(
-                    getattr(gru, weights[0]), rank, factorization
-                )
-            )
-            instance.weight_hh.append(
-                tltorch.FactorizedTensor.from_tensor(
-                    getattr(gru, weights[1]), rank, factorization
-                )
-            )
+for attr in nn.GRU.__dict__:
+    if attr != "__init__":
+        setattr(GRUBase, attr, getattr(nn.GRU, attr))
 
-            if gru.bias:
-                instance.bias_ih.append(getattr(gru, weights[2]))
-                instance.bias_hh.append(getattr(gru, weights[3]))
-            else:
-                instance.bias_ih.append(None)
-                instance.bias_hh.append(None)
 
+class TensorizedGRU(GRUBase):
     def __init__(
         self,
         input_size: int,
@@ -60,20 +34,87 @@ class TensorizedGRU(nn.Module):
         batch_first: bool = True,
         dropout: float = 0.0,
         bidirectional: bool = False,
+        device=None,
+        dtype=None,
     ) -> None:
         if bidirectional:
             raise NotImplementedError(
                 "Bidirectional LSTMs are not supported yet in this implementation."
             )
 
-        super(TensorizedGRU, self).__init__()
+        super().__init__(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            bias=bias,
+            batch_first=batch_first,
+            dropout=dropout,
+            bidirectional=False,
+            device=device,
+            dtype=dtype,
+        )
 
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.bias = bias
-        self.batch_first = batch_first
-        self.dropout = dropout
+    def __factorize_single_layer(
+        self,
+        weight_ih: torch.Tensor,
+        weight_hh: torch.Tensor,
+        rank: int | float,
+        order: int,
+        factorization: str,
+    ):
+        # ! Factorize the GRU weight
+        # Get the tensorized shape for weight_ih (input + hidden)
+        tensor_ih_shape = tltorch.utils.get_tensorized_shape(
+            *weight_ih.shape, min_dim=2, order=order
+        )
+        _weight_ih = tltorch.TensorizedTensor.new(
+            tensor_ih_shape, rank=rank, factorization=factorization
+        )
+        _weight_ih.init_from_matrix(weight_ih)
+        _weight_ih = nn.Parameter(weight_ih)
+
+        # ! Factorize the GRU weight_hh
+        # Get the tensorized shape for weight_hh (hidden + hidden)
+        tensor_hh_shape = tltorch.utils.get_tensorized_shape(
+            *weight_hh.shape, min_dim=2
+        )
+
+        _weight_hh = tltorch.TensorizedTensor.new(
+            tensor_hh_shape, rank=rank, factorization=factorization
+        )
+        _weight_hh.init_from_matrix(weight_hh)
+        _weight_hh = nn.Parameter(weight_hh)
+
+        return [_weight_ih, _weight_hh]
+
+    def factorize(
+        self,
+        rank="same",
+        factorization="cp",
+        order=3,
+        implementation="reconstructed",
+        checkpointing=False,
+    ):
+        self.implementation = implementation
+        self.checkpointing = checkpointing
+        self.tensor_dropout = tltorch.tensor_hooks.TensorDropout(
+            self.dropout, drop_test=False
+        )
+
+        for layer in range(self.num_layers):
+            # Retrieve weights' names
+            weights = self._all_weights[layer]
+
+            _weight_ih, _weight_hh = self.__factorize_single_layer(
+                getattr(self, weights[0]),
+                getattr(self, weights[1]),
+                rank,
+                order,
+                factorization,
+            )
+
+            setattr(self, weights[0], _weight_ih)
+            setattr(self, weights[1], _weight_hh)
 
     @staticmethod
     def _gru_cell(
@@ -83,20 +124,11 @@ class TensorizedGRU(nn.Module):
         bias_ih,
         weight_hh,
         bias_hh,
-        in_features,
-        hidden_features,
-        implementation,
     ):
         x = x.view(-1, x.size(1))
 
         gate_x = F.linear(x, weight_ih, bias_ih)
         gate_h = F.linear(hx, weight_hh, bias_hh)
-        # gate_x = tltorch.functional.factorized_linear(
-        #     x, weight_ih, bias_ih, in_features, implementation
-        # )
-        # gate_h = tltorch.functional.factorized_linear(
-        #     hx, weight_hh, bias_hh, hidden_features, implementation
-        # )
 
         i_r, i_i, i_n = gate_x.chunk(3, 1)
         h_r, h_i, h_n = gate_h.chunk(3, 1)
@@ -118,16 +150,32 @@ class TensorizedGRU(nn.Module):
         bs, seq_len, input_size = x.size()
         h_t = list(hx.unbind(0))
 
+        weight_ih = []
+        weight_hh = []
+        bias_ih = []
+        bias_hh = []
+        for layer in range(self.num_layers):
+            # Retrieve weights
+            weights = self._all_weights[layer]
+            weight_ih.append(getattr(self, weights[0]))
+            weight_hh.append(getattr(self, weights[1]))
+            if self.bias:
+                bias_ih.append(getattr(self, weights[2]))
+                bias_hh.append(getattr(self, weights[3]))
+            else:
+                bias_ih.append(None)
+                bias_hh.append(None)
+
         outputs = []
         for x_t in x.unbind(1):
             for layer in range(self.num_layers):
                 h_t[layer] = self._gru_cell(
                     x_t,
                     h_t[layer],
-                    self.weight_ih[layer],
-                    self.bias_ih[layer],
-                    self.weight_hh[layer],
-                    self.bias_hh[layer],
+                    weight_ih[layer],
+                    bias_ih[layer],
+                    weight_hh[layer],
+                    bias_hh[layer],
                 )
 
                 # Apply dropout if in training mode and not the last layer

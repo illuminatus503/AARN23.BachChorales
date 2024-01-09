@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-import tltorch
+import tensorly as tl
+from tensorly.decomposition import tensor_train_matrix
+
+tl.backend("torch")
 
 from typing import *
 
@@ -44,7 +46,6 @@ class TensorizedGRUCell(nn.RNNCellBase):
         )
         weight_hh.init_from_matrix(self.weight_hh)
         self.weight_hh = nn.Parameter(weight_hh)
-
 
     def forward(
         self, input: torch.Tensor, hx: Optional[torch.Tensor] = None

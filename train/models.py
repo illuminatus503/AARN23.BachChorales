@@ -52,6 +52,7 @@ class TonicNet(nn.Module):
         if self.z_dim > 0:
             self.input_size += self.z_emb_size
 
+        # OLD GRU network (encoder)
         # self.rnn = nn.GRU(
         #     input_size=self.input_size,
         #     hidden_size=self.nb_rnn_units,
@@ -59,6 +60,7 @@ class TonicNet(nn.Module):
         #     batch_first=True,
         #     dropout=self.dropout,
         # )
+
         self.rnn = TensorizedGRU(
             input_size=self.input_size,
             hidden_size=self.nb_rnn_units,
@@ -66,6 +68,7 @@ class TonicNet(nn.Module):
             batch_first=True,
             dropout=self.dropout,
         )
+
         self.dropout_o = VariationalDropout(self.dropout, batch_first=True)
 
         # output layer which projects back to tag space
@@ -92,7 +95,7 @@ class TonicNet(nn.Module):
         )
 
         # ! Tensorization of the GRU
-        self.rnn.factorize(rank=0.1)
+        self.rnn.factorize(rank=0.1, factorization="blocktt")
 
         # ! Tensorization of the linear layer
         self.hidden_to_tag = tltorch.FactorizedLinear.from_linear(
