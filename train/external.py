@@ -12,98 +12,226 @@ import tltorch
 from typing import *
 
 
-class TensorizedGRUCell(nn.RNNCellBase):
+class GRUBase(nn.RNNBase):
+    """A Base module for GRU. Inheriting from GRUBase enables compatibility with torch.compile."""
+
+    def __init__(self, *args, **kwargs):
+        return super().__init__("GRU", *args, **kwargs)
+
+
+for attr in nn.GRU.__dict__:
+    if attr != "__init__":
+        setattr(GRUBase, attr, getattr(nn.GRU, attr))
+
+
+class TensorizedGRU(GRUBase):
     def __init__(
         self,
         input_size: int,
         hidden_size: int,
+        num_layers: int = 1,
         bias: bool = True,
+        batch_first: bool = True,
+        dropout: float = 0.0,
+        bidirectional: bool = False,
         device=None,
         dtype=None,
     ) -> None:
-        factory_kwargs = {"device": device, "dtype": dtype}
-        super().__init__(input_size, hidden_size, bias, num_chunks=3, **factory_kwargs)
-
-    def factorize(self, rank="same", factorization="cp"):
-        # ! Factorize the GRU weight
-        # Get the tensorized shape for weight_ih (input + hidden)
-        tensor_ih_shape = tltorch.utils.get_tensorized_shape(
-            *self.weight_ih.shape, min_dim=2
-        )
-        weight_ih = tltorch.TensorizedTensor.new(
-            tensor_ih_shape,
-            rank=rank,
-            factorization=factorization,
-        )
-        weight_ih.init_from_matrix(self.weight_ih)
-        self.weight_ih = nn.Parameter(weight_ih)
-
-        # ! Factorize the GRU weight_hh
-        # Get the tensorized shape for weight_hh (hidden + hidden)
-        tensor_hh_shape = tltorch.utils.get_tensorized_shape(
-            *self.weight_hh.shape, min_dim=2
-        )
-
-        weight_hh = tltorch.TensorizedTensor.new(
-            tensor_hh_shape, rank=rank, factorization=factorization
-        )
-        weight_hh.init_from_matrix(self.weight_hh)
-        self.weight_hh = nn.Parameter(weight_hh)
-
-        if torch.cuda.is_available():
-            self.weight_ih.to(torch.device("cuda"))
-            self.weight_hh.to(torch.device("cuda"))
-
-    def forward(
-        self, input: torch.Tensor, hx: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        if input.dim() not in (1, 2):
-            raise ValueError(
-                f"TensorizedGRUCell: Expected input to be 1D or 2D, got {input.dim()}D instead"
+        if bidirectional:
+            raise NotImplementedError(
+                "Bidirectional LSTMs are not supported yet in this implementation."
             )
-        if hx is not None and hx.dim() not in (1, 2):
-            raise ValueError(
-                f"TensorizedGRUCell: Expected hidden to be 1D or 2D, got {hx.dim()}D instead"
+
+        super().__init__(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            bias=bias,
+            batch_first=batch_first,
+            dropout=dropout,
+            bidirectional=False,
+            device=device,
+            dtype=dtype,
+        )
+
+    def __factorize_single_layer(
+        self,
+        weight_ih: torch.Tensor,
+        weight_hh: torch.Tensor,
+        rank: int | float,
+        factorization: str,
+    ):
+        _weight_ih = nn.Parameter(
+            tltorch.FactorizedTensor.from_tensor(weight_ih, rank, factorization)
+        )
+        _weight_hh = nn.Parameter(
+            tltorch.FactorizedTensor.from_tensor(weight_hh, rank, factorization)
+        )
+
+        # # ! Factorize the GRU weight
+        # # Get the tensorized shape for weight_ih (input + hidden)
+        # tensor_ih_shape = tltorch.utils.get_tensorized_shape(
+        #     *weight_ih.shape, min_dim=2, order=order
+        # )
+        # _weight_ih = tltorch.FactorizedTensor.new(
+        #     tensor_ih_shape, rank=rank, factorization=factorization
+        # )
+        # _weight_ih.init_from_matrix(weight_ih)
+        # _weight_ih = nn.Parameter(weight_ih)
+
+        # # ! Factorize the GRU weight_hh
+        # # Get the tensorized shape for weight_hh (hidden + hidden)
+        # tensor_hh_shape = tltorch.utils.get_tensorized_shape(
+        #     *weight_hh.shape, min_dim=2
+        # )
+
+        # _weight_hh = tltorch.FactorizedTensor.new(
+        #     tensor_hh_shape, rank=rank, factorization=factorization
+        # )
+        # _weight_hh.init_from_matrix(weight_hh)
+        # _weight_hh = nn.Parameter(weight_hh)
+
+        return [_weight_ih, _weight_hh]
+
+    def factorize(
+        self,
+        rank="same",
+        factorization="cp",
+        implementation="reconstructed",
+        checkpointing=False,
+    ):
+        self.implementation = implementation
+        self.checkpointing = checkpointing
+        self.tensor_dropout = tltorch.tensor_hooks.TensorDropout(
+            self.dropout, drop_test=False
+        )
+
+        self.weight_ih = []
+        self.weight_hh = []
+        self.bias_ih = []
+        self.bias_hh = []
+
+        for layer in range(self.num_layers):
+            # Retrieve weights' names
+            weights = self._all_weights[layer]
+
+            # Factorize those weights
+            _weight_ih = tltorch.FactorizedTensor.from_tensor(
+                getattr(self, weights[0]), rank, factorization
             )
-        is_batched = input.dim() == 2
-        if not is_batched:
-            input = input.unsqueeze(0)
-
-        if hx is None:
-            hx = torch.zeros(
-                input.size(0), self.hidden_size, dtype=input.dtype, device=input.device
+            _weight_hh = tltorch.FactorizedTensor.from_tensor(
+                getattr(self, weights[1]), rank, factorization
             )
-        else:
-            hx = hx.unsqueeze(0) if not is_batched else hx
 
-        ret = self.gru_cell(input, hx)
+            self.weight_ih.append(_weight_ih)
+            self.weight_hh.append(_weight_hh)
 
-        if not is_batched:
-            ret = ret.squeeze(0)
+            if self.bias:
+                self.bias_ih.append(None)
+                self.bias_hh.append(None)
 
-        return ret
-
-    def gru_cell(self, x, hx):
+    @staticmethod
+    def _gru_cell(
+        x,
+        hx,
+        weight_ih,
+        bias_ih,
+        weight_hh,
+        bias_hh,
+        in_features,
+        hidden_features,
+        implementation,
+    ):
         x = x.view(-1, x.size(1))
 
-        gate_x = F.linear(x, self.weight_ih, self.bias_ih)
-        gate_h = F.linear(hx, self.weight_hh, self.bias_hh)
+        # gate_x = F.linear(x, weight_ih, bias_ih)
+        # gate_h = F.linear(hx, weight_hh, bias_hh)
+        gate_x = tltorch.functional.factorized_linear(
+            x, weight_ih, bias_ih, in_features, implementation
+        )
+        gate_h = tltorch.functional.factorized_linear(
+            hx, weight_hh, bias_hh, hidden_features, implementation
+        )
 
         i_r, i_i, i_n = gate_x.chunk(3, 1)
         h_r, h_i, h_n = gate_h.chunk(3, 1)
 
-        resetgate = F.sigmoid(i_r + h_r)
-        inputgate = F.sigmoid(i_i + h_i)
-        newgate = F.tanh(i_n + (resetgate * h_n))
+        resetgate = (i_r + h_r).sigmoid()
+        inputgate = (i_i + h_i).sigmoid()
+        newgate = (i_n + (resetgate * h_n)).tanh()
 
         hy = newgate + inputgate * (hx - newgate)
 
         return hy
 
+    def _gru(self, x, hx):
+        if not self.batch_first:
+            x = x.permute(
+                1, 0, 2
+            )  # Change (seq_len, batch, features) to (batch, seq_len, features)
 
-class TensorizedGRU(nn.Module):
-    def __init__(self):
-        pass
+        bs, seq_len, input_size = x.size()
+        h_t = list(hx.unbind(0))
+
+        outputs = []
+        for x_t in x.unbind(1):
+            for layer in range(self.num_layers):
+                h_t[layer] = self._gru_cell(
+                    x_t,
+                    h_t[layer],
+                    self.weight_ih[layer],
+                    self.bias_ih[layer],
+                    self.weight_hh[layer],
+                    self.bias_hh[layer],
+                    self.input_size,
+                    self.hidden_size,
+                    self.implementation,
+                )
+                # TODO: checkpointing
+
+                # Apply dropout if in training mode and not the last layer
+                if layer < self.num_layers - 1 and self.dropout:
+                    x_t = F.dropout(h_t[layer], p=self.dropout, training=self.training)
+                    # x_t = self.tensor_dropout(h_t[layer])
+                else:
+                    x_t = h_t[layer]
+
+            outputs.append(x_t)
+
+        outputs = torch.stack(outputs, dim=1)
+        if not self.batch_first:
+            outputs = outputs.permute(
+                1, 0, 2
+            )  # Change back (batch, seq_len, features) to (seq_len, batch, features)
+
+        return outputs, torch.stack(h_t, 0)
+
+    def forward(self, input, hx=None):  # noqa: F811
+        if input.dim() != 3:
+            raise ValueError(
+                f"GRU: Expected input to be 3D, got {input.dim()}D instead"
+            )
+        if hx is not None and hx.dim() != 3:
+            raise RuntimeError(
+                f"For batched 3-D input, hx should also be 3-D but got {hx.dim()}-D tensor"
+            )
+        max_batch_size = input.size(0) if self.batch_first else input.size(1)
+        if hx is None:
+            hx = torch.zeros(
+                self.num_layers,
+                max_batch_size,
+                self.hidden_size,
+                dtype=input.dtype,
+                device=input.device,
+            )
+
+        self.check_forward_args(input, hx, batch_sizes=None)
+        result = self._gru(input, hx)
+
+        output = result[0]
+        hidden = result[1]
+
+        return output, hidden
 
 
 class VariationalDropout(nn.Module):

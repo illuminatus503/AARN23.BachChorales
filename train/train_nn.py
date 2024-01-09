@@ -60,17 +60,25 @@ def train_TonicNet(
             )
 
     # Factorize the model after loading it
+    num_params_before = 0
+    for p in model.parameters():
+        if p.requires_grad:
+            num_params_before += p.numel()
+    print(f"Number of parameters: {num_params_before}")
+
     if factorize:
         model.factorize_model()
 
-    # Print the status of the model after factorization
-    num_params = 0
-    for p in model.parameters():
-        if p.requires_grad:
-            num_params += p.numel()
+        # Print the status of the model after factorization
+        # num_params_after = 0
+        # for p in model.parameters():
+        #     if p.requires_grad:
+        #         num_params_after += p.numel()
+        # print(f"Number of parameters (after factorization): {num_params_after}")
+        # print(f"Reduction of params.? {num_params_before / num_params_after - 1:^2.2%}")
 
+    print()
     print(model)
-    print(f"Number of parameters: {num_params}")
     print()
 
     if cuda.is_available():

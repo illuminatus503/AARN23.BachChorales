@@ -52,7 +52,14 @@ class TonicNet(nn.Module):
         if self.z_dim > 0:
             self.input_size += self.z_emb_size
 
-        self.rnn = nn.GRU(
+        # self.rnn = nn.GRU(
+        #     input_size=self.input_size,
+        #     hidden_size=self.nb_rnn_units,
+        #     num_layers=self.nb_layers,
+        #     batch_first=True,
+        #     dropout=self.dropout,
+        # )
+        self.rnn = TensorizedGRU(
             input_size=self.input_size,
             hidden_size=self.nb_rnn_units,
             num_layers=self.nb_layers,
@@ -85,7 +92,7 @@ class TonicNet(nn.Module):
         )
 
         # ! Tensorization of the GRU
-        self.rnn = TensorizedGRU.from_gru(self.rnn, rank=0.1)
+        self.rnn.factorize(rank=0.1)
 
         # ! Tensorization of the linear layer
         self.hidden_to_tag = tltorch.FactorizedLinear.from_linear(
