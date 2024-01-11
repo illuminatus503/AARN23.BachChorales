@@ -1,2 +1,2 @@
 from .tonicnet import TonicNet
-from .transformer import Transformer_Model
+from .transformer import TransformerModel

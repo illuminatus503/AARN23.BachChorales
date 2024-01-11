@@ -6,7 +6,7 @@ import torch.nn as nn
 from ..audio import MAX_SEQ
 
 
-def position_encoding_init(n_position:int, emb_dim:int) -> torch.Tensor:
+def position_encoding_init(n_position: int, emb_dim: int) -> torch.Tensor:
     """Init the sinusoid position encoding table"""
 
     # keep dim 0 for padding token position encoding zero vector
@@ -18,23 +18,50 @@ def position_encoding_init(n_position:int, emb_dim:int) -> torch.Tensor:
             for pos in range(n_position)
         ],
         dtype=torch.float32,
+        requires_grad=False,
     )
 
     position_enc[1:, 0::2] = np.sin(
         position_enc[1:, 0::2]
     )  # apply sin on 0th,2nd,4th...emb_dim
-    
+
     position_enc[1:, 1::2] = np.cos(
         position_enc[1:, 1::2]
     )  # apply cos on 1st,3rd,5th...emb_dim
 
-    if torch.cuda.is_available():
-        position_enc = position_enc.cuda()
-
     return position_enc
 
 
-class Transformer_Model(nn.Module):
+class TransformerEmbedding(nn.Module):
+    def __init__(
+        self, num_embeddings, embedding_dim, seq_len, batch_size, pos_embedding_dim=0
+    ):
+        super(TransformerEmbedding, self).__init__()
+        
+        self._embedding = nn.Embedding(num_embeddings, embedding_dim)
+        self._seq_len = seq_len
+        self._batch_size = batch_size
+
+        if pos_embedding_dim > 0:
+            self._pos_embedding = position_encoding_init(MAX_SEQ, pos_embedding_dim)
+        else:
+            self._pos_embedding = None
+
+    def forward(self, input, p=None):
+        x = self._embedding(input)
+        # x = x.view(self._seq_len, self._batch_size, -1).contiguous()
+
+        if p is not None and self._pos_embedding:
+            p = self._pos_embedding(p)
+            # p = p.view(self._seq_len, self._batch_size, -1).contiguous()
+            # x = torch.cat((x, p), 2)
+            x += p
+            print(x.shape)
+
+        return x
+
+
+class TransformerModel(nn.Module):
     def __init__(
         self,
         nb_tags,
@@ -46,7 +73,7 @@ class Transformer_Model(nn.Module):
         dropout=0.0,
         encoder_only=True,
     ):
-        super(Transformer_Model, self).__init__()
+        super(TransformerModel, self).__init__()
 
         self.nb_layers = nb_layers
         self.emb_dim = emb_dim
@@ -63,20 +90,25 @@ class Transformer_Model(nn.Module):
         self.__build_model()
 
     def __build_model(self):
-        self.embedding = nn.Embedding(self.nb_tags, self.emb_dim)
+        # MÁSCARAS PARA EL APRENDIZAJE CAUSAL
+        self.mask = torch.triu(torch.ones(self.seq_len, self.seq_len)).T
+        self.mask = self.mask.masked_fill(self.mask == 0, -torch.inf)
+        self.mask = self.mask.masked_fill(self.mask == 1, 0.0)
 
-        if not self.encoder_only:
-            self.embedding2 = nn.Embedding(self.nb_tags, self.emb_dim)
-
-        self.pos_emb = position_encoding_init(MAX_SEQ, self.pe_dim)
-        self.pos_emb.requires_grad = False
-
+        # ENCODER
+        self.embedding_encoder = TransformerEmbedding(
+            self.nb_tags,
+            self.emb_dim,
+            self.seq_len,
+            self.batch_size,
+        )
         self.dropout_i = nn.Dropout(self.dropout)
 
-        input_size = self.pe_dim + self.emb_dim
-
         self.transformerLayerI = nn.TransformerEncoderLayer(
-            d_model=input_size, nhead=8, dropout=self.dropout, dim_feedforward=1024
+            d_model=self.pe_dim + self.emb_dim,
+            nhead=8,
+            dropout=self.dropout,
+            dim_feedforward=1024,
         )
 
         self.transformerI = nn.TransformerEncoder(
@@ -87,9 +119,19 @@ class Transformer_Model(nn.Module):
         self.dropout_m = nn.Dropout(self.dropout)
 
         if not self.encoder_only:
-            # design decoder
+            # DECODER
+            self.embedding_decoder = TransformerEmbedding(
+                self.nb_tags,
+                self.emb_dim,
+                self.seq_len,
+                self.batch_size,
+            )
+
             self.transformerLayerO = nn.TransformerDecoderLayer(
-                d_model=input_size, nhead=8, dropout=self.dropout, dim_feedforward=1024
+                d_model=self.pe_dim + self.emb_dim,
+                nhead=8,
+                dropout=self.dropout,
+                dim_feedforward=1024,
             )
 
             self.transformerO = nn.TransformerDecoder(
@@ -100,65 +142,29 @@ class Transformer_Model(nn.Module):
             self.dropout_o = nn.Dropout(self.dropout)
 
         # output layer which projects back to tag space
-        self.hidden_to_tag = nn.Linear(self.emb_dim + self.pe_dim, self.nb_tags)
-
-    def __pos_encode(self, p):
-        return self.pos_emb[p]
+        self.hidden_to_tag = nn.Linear(self.pe_dim + self.emb_dim, self.nb_tags)
 
     def forward(self, X, p, X2=None, train_embedding=True):
-        self.embedding.weight.requires_grad = train_embedding
-        if not self.encoder_only:
-            self.embedding2.weight.requires_grad = train_embedding
-
-        I = X
-
-        self.mask = (torch.triu(torch.ones(self.seq_len, self.seq_len)) == 1).transpose(
-            0, 1
-        )
-        self.mask = (
-            self.mask.float()
-            .masked_fill(self.mask == 0, float("-inf"))
-            .masked_fill(self.mask == 1, float(0.0))
-        )
-
-        if torch.cuda.is_available():
-            self.mask = self.mask.cuda()
+        # self.embedding_encoder.weight.requires_grad = train_embedding
+        # if not self.encoder_only:
+        #     self.embedding_decoder.weight.requires_grad = train_embedding
 
         # ---------------------
-        # Combine inputs
-        X = self.embedding(I)
-        X = X.view(self.seq_len, self.batch_size, -1)
-
-        if self.pe_dim > 0:
-            P = self.__pos_encode(p)
-            P = P.view(self.seq_len, self.batch_size, -1)
-            X = torch.cat((X, P), 2)
-
+        # Combine inputs & run through transformer encoder
+        X = self.embedding_encoder(X, p)
         X = self.dropout_i(X)
-
-        # Run through transformer encoder
-
-        M = self.transformerI(X, mask=self.mask)
+        M = self.transformerI(X, self.mask)
         M = self.dropout_m(M)
 
         if not self.encoder_only:
             # ---------------------
             # Decoder stack
-            X = self.embedding2(X2)
-            X = X.view(self.seq_len, self.batch_size, -1)
+            X2 = self.embedding_decoder(X2)
+            X2 = self.dropout_i(X2)
+            X2 = self.transformerO(X2, M, tgt_mask=self.mask, memory_mask=None)
+            M = self.dropout_o(X2)
 
-            if self.pe_dim > 0:
-                X = torch.cat((X, P), 2)
+        # run through linear layer
+        Y_hat = self.hidden_to_tag(M)
 
-            X = self.dropout_i(X)
-
-            X = self.transformerO(X, M, tgt_mask=self.mask, memory_mask=None)
-            X = self.dropout_o(X)
-
-            # run through linear layer
-            X = self.hidden_to_tag(X)
-        else:
-            X = self.hidden_to_tag(M)
-
-        Y_hat = X
         return Y_hat

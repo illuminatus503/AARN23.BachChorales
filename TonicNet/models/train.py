@@ -19,7 +19,7 @@ from ..audio import (
 from ..audio.load_dataset import get_data_set
 
 from .tonicnet import TonicNet
-from .transformer import Transformer_Model
+from .transformer import TransformerModel
 from .external import Lookahead, CrossEntropyTimeDistributedLoss
 
 
@@ -293,7 +293,7 @@ def train_Transformer(
     lr_range_test=False,
     sanity_test=False,
 ):
-    model = Transformer_Model(
+    model = TransformerModel(
         nb_tags=N_TOKENS,
         nb_layers=5,
         emb_dim=256,

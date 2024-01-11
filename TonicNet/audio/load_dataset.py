@@ -105,7 +105,6 @@ def bach_chorales_classic(mode, transpose=False, maj_min=False, jsf_aug=None):
 
     for folder_name in ["training_set", "val_set"]:
         if torch.cuda.is_available():
-            print("cuda:")
             try:
                 os.makedirs(f"train/{folder_name}/X_cuda")
                 os.makedirs(f"train/{folder_name}/Y_cuda")
@@ -134,13 +133,13 @@ def bach_chorales_classic(mode, transpose=False, maj_min=False, jsf_aug=None):
 
         with open(f"TonicNet/audio/data/{phase}_keysigs.p", "rb") as ks_fp:
             ks = pickle.load(ks_fp)
-        
+
         with open(f"TonicNet/audio/data/{phase}_chords.p", "rb") as cords_fp:
             crds = pickle.load(cords_fp)
-            
+
         with open("TonicNet/audio/data/train_majmin_chords.p", "rb") as cords_fp:
             crds_majmin = pickle.load(cords_fp)
-            
+
         k_count = 0
 
         if jsf_aug is not None and phase == "train":
@@ -310,7 +309,6 @@ def bach_chorales_classic(mode, transpose=False, maj_min=False, jsf_aug=None):
 
                 if mode == "save":
                     if torch.cuda.is_available():
-                        print("cuda:")
                         torch.save(X.cuda(), f"train/{set_folder}/X_cuda/{count}.pt")
                         torch.save(Y.cuda(), f"train/{set_folder}/Y_cuda/{count}.pt")
                         torch.save(P.cuda(), f"train/{set_folder}/P_cuda/{count}.pt")
@@ -329,11 +327,13 @@ def bach_chorales_classic(mode, transpose=False, maj_min=False, jsf_aug=None):
 
 
 def get_test_set_for_eval_classic(phase="test"):
-    with open(PITCH_TOKENIZER_PATH, 'rb') as tokeniser_fp:
+    with open(PITCH_TOKENIZER_PATH, "rb") as tokeniser_fp:
         tokeniser = pickle.load(tokeniser_fp)
     tokeniser["end"] = 0
 
-    d = np.load("TonicNet/audio/data/Jsb16thSeparated.npz", allow_pickle=True, encoding="latin1")
+    d = np.load(
+        "TonicNet/audio/data/Jsb16thSeparated.npz", allow_pickle=True, encoding="latin1"
+    )
     test = d[f"{phase}"]
 
     crds = pickle.load(open(f"TonicNet/audio/data/{phase}_chords.p", "rb"))
