@@ -1,35 +1,45 @@
-from torch import cat, multinomial
-from torch import cuda, load, device, tensor, zeros
-from torch.nn import LogSoftmax
 import pickle
 import random
 from copy import deepcopy
+
+import torch
+from torch import cat, multinomial
+from torch import cuda, load, device, tensor, zeros
+from torch.nn import LogSoftmax
+
+from tqdm import tqdm
 
 from TonicNet.models import TonicNet
 from TonicNet.audio import INVPITCH_TOKENIZER_PATH
 
 
 def sample_TonicNet_random(load_path, max_tokens=2999, temperature=1.0):
-    model = TonicNet(nb_tags=98, z_dim=32, nb_layers=3, nb_rnn_units=256, dropout=0.0)
+    model = TonicNet(
+        nb_tags=98,
+        z_dim=32,
+        nb_layers=3,
+        nb_rnn_units=256,
+        dropout=0.0,
+    )
 
     try:
         if cuda.is_available():
-            model.load_state_dict(load(load_path)["model_state_dict"])
+            model.load_state_dict(load(load_path, device('cuda'))["model_state_dict"])
         else:
             model.load_state_dict(
                 load(load_path, map_location=device("cpu"))["model_state_dict"]
             )
-        print("loded params from", load_path)
     except:
         raise ImportError(f"No file located at {load_path}, could not load parameters")
-    print(model)
 
     if cuda.is_available():
         model.cuda()
 
+    print(model)
+
     model.eval()
     model.seq_len = 1
-    model.hidden = model.init_hidden()
+    model.init_hidden()
     model.zero_grad()
 
     with open(INVPITCH_TOKENIZER_PATH, mode="rb") as tokenizer_fp:
@@ -43,11 +53,11 @@ def sample_TonicNet_random(load_path, max_tokens=2999, temperature=1.0):
     inst_conv_dict = {0: 0, 1: 1, 2: 4, 3: 2, 4: 3}
     current_token_dict = {0: "", 1: "", 2: "", 3: "", 4: ""}
 
-    print("")
-    print(0)
-    print("\t", 0, ":", chord_from_token(x[0][0].item() - 48))
+    # print("")
+    # print(0)
+    # print("\t", 0, ":", chord_from_token(x[0][0].item() - 48))
 
-    for i in range(max_tokens):
+    for i in tqdm(range(max_tokens)):
         if i == 0:
             reset_hidden = True
         else:
@@ -76,9 +86,6 @@ def sample_TonicNet_random(load_path, max_tokens=2999, temperature=1.0):
 
         next_inst = inst_conv_dict[(i + 1) % 5]
 
-        print("")
-        print(i + 1)
-
         if current_token_dict[next_inst] == token:
             pos_dict[next_inst] += 1
         else:
@@ -86,7 +93,10 @@ def sample_TonicNet_random(load_path, max_tokens=2999, temperature=1.0):
             pos_dict[next_inst] = 0
 
         x = y.view(1, 1, 1)
-        x_post = cat((x_post, x), dim=1)
+        if torch.cuda.is_available():
+            x_post = cat((x_post.cuda(), x.cuda()), dim=1)
+        else:
+            x_post = cat((x_post, x), dim=1)
 
     return x_post
 

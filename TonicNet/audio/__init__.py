@@ -1,17 +1,11 @@
-from .load_dataset import (
-    MAX_SEQ,
-    N_PITCH,
-    N_CHORD,
-    N_TOKENS,
-    TRAIN_BATCHES,
-    TOTAL_BATCHES,
-    CV_PHASES,
-    TRAIN_ONLY_PHASES,
-)
+from .dataset import BachChoralesDataset
 
-from pathlib import Path
+MAX_SEQ = 2880
+N_PITCH = 48
+N_CHORD = 50
+N_TOKENS = 98  # N_PITCH + N_CHORD
 
-INVPITCH_TOKENIZER_PATH = Path("TonicNet/audio/tokenisers/inverse_pitch_only.p")
-PITCH_TOKENIZER_PATH = Path("TonicNet/audio/tokenisers/pitch_only.p")
+INVPITCH_TOKENIZER_PATH = "TonicNet/audio/tokenisers/inverse_pitch_only.p"
+PITCH_TOKENIZER_PATH = "TonicNet/audio/tokenisers/pitch_only.p"
 
-DEFAULT_SOUNDFONT_PATH = Path("TonicNet/audio/soundfont/UprightPianoKW-20220221.sf2")
+DEFAULT_SOUNDFONT_PATH = "TonicNet/audio/soundfont/UprightPianoKW-20220221.sf2"

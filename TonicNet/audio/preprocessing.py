@@ -1,140 +1,244 @@
+import os
+import pickle
+
+from pathlib import Path
+
 import numpy as np
+import torch
 
-from .instruments import get_instrument
+from tqdm import tqdm
 
-def np_perform_all_transpositions(parts, tonic, chords):
-    mylist = []
-    tonics = []
-    my_chords = []
-    try:
-        t_r = np_transposable_range_for_piece(parts)
-    except:
-        print("error getting transpose range")
-        return mylist
-    lower = t_r[0]
-    higher = t_r[1] + 1
-    quals = [np_get_quals_from_chord(x) for x in chords]
-    for i in range(lower, higher):
-        try:
-            roots = [(x + 12 + i) % 12 for x in chords]
-            transposed_piece = np.zeros((len(parts[0]), 4), dtype=int)
-            chord_prog = [
-                np_chord_from_root_qual(roots[i], quals[i])
-                for i in range(len(chords))
-            ]
-            for j in range(4):
-                tp = parts[j] + i
-                transposed_piece[:, j] = tp[:]
-        except:
-            print("ERROR: empty return")
-        else:
-            mylist.append(transposed_piece)
-            tonics.append((tonic + i) % 12)
-            my_chords.append(chord_prog)
-    return mylist, tonics, my_chords
+from .utils.instruments import *
+from .utils.preprocessing import *
+
+from . import PITCH_TOKENIZER_PATH
 
 
-def np_transposable_range_for_part(part, inst):
-    if not isinstance(inst, str):
-        inst = str(inst)
-    part_range = np_get_part_range(part)
-    instrument = get_instrument(inst)
+def bach_chorales_classic(
+    transpose=False,
+    maj_min=False,
+    jsf_aug=None,
+    dir=Path("preprocessed_data"),
+):
+    if maj_min and jsf_aug is not None:
+        raise ValueError("maj_min and jsf_aug can not both be true")
 
-    lower_transposable = instrument.lowestNote - part_range[0]
-    higher_transposable = instrument.highestNote - part_range[1]
+    if jsf_aug not in [
+        "all",
+        "only",
+        "topk-all",
+        "topk-only",
+        "topk-skilled-all",
+        "topk-skilled-only",
+        None,
+    ]:
+        raise ValueError(
+            "unrecognised value for jsf_aug parameter: can only be 'all', 'only', "
+            "'topl-all', 'topk-only', 'topk-skilled-all', 'topk-skilled-only' or None"
+        )
 
-    # suggests there's perhaps no musical content in this score
-    if higher_transposable - lower_transposable >= 128:
-        lower_transposable = 0
-        higher_transposable = 0
-    return min(0, lower_transposable), max(0, higher_transposable)
+    # Load tokenizer
+    with open(PITCH_TOKENIZER_PATH, "rb") as tokeniser_fp:
+        tokeniser = pickle.load(tokeniser_fp)
+    tokeniser["end"] = 0
 
+    # Load raw datasets
+    d = np.load(
+        Path("TonicNet/audio/data/Jsb16thSeparated.npz"),
+        allow_pickle=True,
+        encoding="latin1",
+    )
 
-def np_transposable_range_for_piece(parts):
-    insts = ["soprano", "alto", "tenor", "bass"]
+    if jsf_aug:
+        jsf = np.load(
+            Path("TonicNet/audio/data/js-fakes-16thSeparated.npz"),
+            allow_pickle=True,
+            encoding="latin1",
+        )
 
-    lower = -127
-    higher = 127
+    count = 0
+    for folder_name in ["training_set", "validation_set", "test_set"]:
+        os.makedirs(dir / f"{folder_name}/X", exist_ok=True)
+        os.makedirs(dir / f"{folder_name}/Y", exist_ok=True)
+        os.makedirs(dir / f"{folder_name}/P", exist_ok=True)
+        os.makedirs(dir / f"{folder_name}/I", exist_ok=True)
+        os.makedirs(dir / f"{folder_name}/C", exist_ok=True)
 
-    for i in range(len(parts)):
-        t_r = np_transposable_range_for_part(parts[i], insts[i])
-        if t_r[0] > lower:
-            lower = t_r[0]
-        if t_r[1] < higher:
-            higher = t_r[1]
-    # suggests there's perhaps no musical content in this score
-    if higher - lower >= 128:
-        lower = 0
-        higher = 0
-    return lower, higher
+    for phase, folder_name in tqdm(
+        zip(["train", "valid", "test"], ["training_set", "validation_set", "test_set"])
+    ):
+        k_count = 0
+        train = d[phase]
 
+        with open(f"TonicNet/audio/data/{phase}_keysigs.p", "rb") as keysigns_fp:
+            ks = pickle.load(keysigns_fp)
 
-def np_get_part_range(part):
-    mn = min(part)
+        with open(f"TonicNet/audio/data/{phase}_chords.p", "rb") as chords_fp:
+            crds = pickle.load(chords_fp)
 
-    if mn < 36:
-        p = sorted(part)
-        c = 1
-        while mn < 36:
-            mn = p[c]
-            c += 1
+        if phase == "train":
+            with open(
+                "TonicNet/audio/data/train_majmin_chords.p", "rb"
+            ) as maj_min_chords_fp:
+                crds_majmin = pickle.load(maj_min_chords_fp)
 
-    return [mn, max(part)]
+            if jsf_aug == "all":
+                train = np.concatenate((train, jsf["pitches"]))
+                crds = np.concatenate((crds, jsf["chords"]))
+            elif jsf_aug == "only":
+                train = jsf["pitches"]
+                crds = jsf["chords"]
 
+        for m in train:
+            int_m = m.astype(int)
 
-def np_convert_major_minor(piece, tonic, mode):
-    _piece = piece
+            if maj_min:
+                tonic = ks[k_count][0]
+                scale = ks[k_count][1]
+                crd_majmin = crds_majmin[k_count]
 
-    for i in range(len(_piece)):
-        s = _piece[i][0] if _piece[i][0] < 36 else (_piece[i][0] - tonic) % 12
-        b = _piece[i][3] if _piece[i][3] < 36 else (_piece[i][3] - tonic) % 12
-        a = _piece[i][1] if _piece[i][1] < 36 else (_piece[i][1] - tonic) % 12
-        t = _piece[i][2] if _piece[i][2] < 36 else (_piece[i][2] - tonic) % 12
+            crd = crds[k_count]
+            k_count += 1
 
-        parts = [s, a, t, b]
-
-        for n in range(len(parts)):
-            if mode == "major":
-                if parts[n] in [4, 9]:
-                    _piece[i][n] -= 1
-            elif mode == "minor":
-                if parts[n] in [3, 8, 10]:
-                    _piece[i][n] += 1
+            if not transpose or phase == "valid":
+                transpositions = [int_m]
+                crds_pieces = [crd]
             else:
-                raise ValueError(f"mode must be minor or major, received {mode}")
+                parts = [int_m[:, 0], int_m[:, 1], int_m[:, 2], int_m[:, 3]]
+                transpositions, tonics, crds_pieces = np_perform_all_transpositions(
+                    parts, 0, crd
+                )
 
-    return _piece
+                if maj_min:
+                    mode_switch = np_convert_major_minor(int_m, tonic, scale)
+                    ms_parts = [
+                        mode_switch[:, 0],
+                        mode_switch[:, 1],
+                        mode_switch[:, 2],
+                        mode_switch[:, 3],
+                    ]
+                    ms_trans, ms_tons, ms_crds = np_perform_all_transpositions(
+                        ms_parts, tonic, crd_majmin
+                    )
 
+                    transpositions += ms_trans
+                    tonics += ms_tons
+                    crds_pieces += ms_crds
 
-def np_get_quals_from_chord(chord):
-    if chord < 12:
-        qual = "major"
-    elif chord < 24:
-        qual = "minor"
-    elif chord < 36:
-        qual = "diminished"
-    elif chord < 48:
-        qual = "augmented"
-    elif chord == 48:
-        qual = "other"
-    else:
-        qual = "none"
+            kc = 0
 
-    return qual
+            for t in transpositions:
+                crds_piece = crds_pieces[kc]
 
+                _tokens = []
+                inst_ids = []
+                c_class = []
 
-def np_chord_from_root_qual(root, qual):
-    if qual == "major":
-        chord = root
-    elif qual == "minor":
-        chord = root + 12
-    elif qual == "diminished":
-        chord = root + 24
-    elif qual == "augmented":
-        chord = root + 36
-    elif qual == "other":
-        chord = 48
-    elif qual == "none":
-        chord = 49
+                current_s = ""
+                s_count = 0
 
-    return chord
+                current_a = ""
+                a_count = 0
+
+                current_t = ""
+                t_count = 0
+
+                current_b = ""
+                b_count = 0
+
+                current_c = ""
+                c_count = 0
+
+                timestep = 0
+
+                for i in t:
+                    s = "Rest" if i[0] < 36 else str(i[0])
+                    b = "Rest" if i[3] < 36 else str(i[3])
+                    a = "Rest" if i[1] < 36 else str(i[1])
+                    t = "Rest" if i[2] < 36 else str(i[2])
+
+                    c_val = crds_piece[timestep] + 48
+                    timestep += 1
+
+                    _tokens = _tokens + [c_val, s, b, a, t]
+                    c_class = c_class + [c_val]
+
+                    if c_val == current_c:
+                        c_count += 1
+                    else:
+                        c_count = 0
+                        current_c = c_val
+
+                    if s == current_s:
+                        s_count += 1
+                    else:
+                        s_count = 0
+                        current_s = s
+
+                    if b == current_b:
+                        b_count += 1
+                    else:
+                        b_count = 0
+                        current_b = b
+
+                    if a == current_a:
+                        a_count += 1
+                    else:
+                        a_count = 0
+                        current_a = a
+
+                    if t == current_t:
+                        t_count += 1
+                    else:
+                        t_count = 0
+                        current_t = t
+
+                    inst_ids = inst_ids + [c_count, s_count, b_count, a_count, t_count]
+
+                pos_ids = list(range(len(_tokens)))
+
+                kc += 1
+                _tokens.append("end")
+
+                # TOKENIZATION !!
+                tokens = []
+                for x in _tokens:
+                    try:
+                        if isinstance(x, str):
+                            tokens.append(tokeniser[x])
+                        else:
+                            tokens.append(x)
+                    except:
+                        continue
+                SEQ_LEN = len(tokens) - 1
+
+                count += 1
+
+                data_x = []
+                data_y = []
+
+                pos_x = []
+
+                for i in range(0, len(tokens) - SEQ_LEN, 1):
+                    t_seq_in = tokens[i : i + SEQ_LEN]
+                    t_seq_out = tokens[i + 1 : i + 1 + SEQ_LEN]
+                    data_x.append(t_seq_in)
+                    data_y.append(t_seq_out)
+
+                    p_seq_in = pos_ids[i : i + SEQ_LEN]
+                    pos_x.append(p_seq_in)
+
+                # Generate data and save it for later.
+                X = torch.tensor(data_x)
+                X = torch.unsqueeze(X, 2)
+
+                Y = torch.tensor(data_y)
+                P = torch.tensor(pos_x)
+                I = torch.tensor(inst_ids)
+                C = torch.tensor(c_class)
+
+                torch.save(X, dir / f"{folder_name}/X/{count}.pt")
+                torch.save(Y, dir / f"{folder_name}/Y/{count}.pt")
+                torch.save(P, dir / f"{folder_name}/P/{count}.pt")
+                torch.save(I, dir / f"{folder_name}/I/{count}.pt")
+                torch.save(C, dir / f"{folder_name}/C/{count}.pt")

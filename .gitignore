@@ -1,4 +1,3 @@
-train/training_set/*
-train/val_set/*
+preprocessed_data/*
 *.pyc
 *.mid

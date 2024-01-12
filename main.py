@@ -2,13 +2,10 @@ import os
 import argparse
 from pathlib import Path
 
-from midi2audio import FluidSynth
-
-from TonicNet.audio.load_dataset import bach_chorales_classic
+from TonicNet.audio.preprocessing import bach_chorales_classic
 from TonicNet.audio.utils import indices_to_stream, smooth_rhythm
-from TonicNet.audio import DEFAULT_SOUNDFONT_PATH
+from TonicNet.audio.synthesizer import Synthesizer
 
-from TonicNet.models.external import CrossEntropyTimeDistributedLoss
 from TonicNet.models.train import (
     train_TonicNet,
     TonicNet_lr_finder,
@@ -17,8 +14,7 @@ from TonicNet.models.train import (
     Transformer_lr_finder,
     Transformer_sanity_test,
 )
-from TonicNet.models.eval import eval_on_test_set, sample_TonicNet_random
-from TonicNet.models import TonicNet
+from TonicNet.models.eval import sample_TonicNet_random
 
 DEFAULT_LOAD_MODEL = Path(
     "TonicNet/models/pretrained/TonicNet_epoch-58_loss-0.317_acc-90.928.pt"
@@ -55,9 +51,11 @@ def main():
     parser.add_argument("-e", "--eval_nn", action="store_true")
     parser.add_argument("-v", "--version", action="store_true")
     parser.add_argument("-m", "--model", type=str, default=DEFAULT_LOAD_MODEL)
-    
+
     parser.add_argument("--jsf", default=None, choices=["all", "only", "fake", None])
-    parser.add_argument("--arch", type=str, choices=['tonicnet', 'transformer'], default='tonicnet')
+    parser.add_argument(
+        "--arch", type=str, choices=["tonicnet", "transformer"], default="tonicnet"
+    )
 
     args = parser.parse_args()
     LOADED_MODEL_PATH = Path(args.model)
@@ -70,54 +68,55 @@ def main():
     if args.jsf is not None:
         match args.jsf:
             case "only":
-                for x, y, p, i, c in bach_chorales_classic(
-                    "save", transpose=True, jsf_aug="only"
-                ):
-                    continue
+                bach_chorales_classic(transpose=True, jsf_aug="only")
             case "fake":
-                for x, y, p, i, c in bach_chorales_classic("save", transpose=True):
-                    continue
+                bach_chorales_classic(transpose=True)
             case "all":
-                for x, y, p, i, c in bach_chorales_classic(
-                    "save", transpose=True, jsf_aug="all"
-                ):
-                    continue
+                bach_chorales_classic(transpose=True, jsf_aug="all")
+
+        print("Dataset preprocessed successfully.")
+        exit(0)
 
     if args.train:
         match args.arch:
-            case 'tonicnet':
+            case "tonicnet":
                 train_TonicNet(3000, shuffle_batches=1, train_emb_freq=1, load_path="")
-            case 'transformer':
+            case "transformer":
                 train_Transformer(3000, shuffle_batches=1, load_path="")
             case _:
-                raise RuntimeError('NotReachable')
+                raise RuntimeError("NotReachable")
 
     elif args.find_lr:
         match args.arch:
-            case 'tonicnet':
+            case "tonicnet":
                 TonicNet_lr_finder(train_emb_freq=1, load_path="")
-            case 'transformer':
+            case "transformer":
                 Transformer_lr_finder(load_path="")
             case _:
-                raise RuntimeError('NotReachable')
+                raise RuntimeError("NotReachable")
 
     elif args.sanity_check:
         match args.arch:
-            case 'tonicnet':
+            case "tonicnet":
                 TonicNet_sanity_test(num_batches=1, train_emb_freq=1)
-            case 'transformer':
+            case "transformer":
                 Transformer_sanity_test(num_batches=1)
             case _:
-                raise RuntimeError('NotReachable')
+                raise RuntimeError("NotReachable")
 
     elif args.sample > 0:
-        os.makedirs(DEFAULT_OUTPUT_PATH, exist_ok=True)
-        os.makedirs(DEFAULT_OUTPUT_PATH_MID, exist_ok=True)
-        
+        synth = Synthesizer(DEFAULT_OUTPUT_PATH_MID, DEFAULT_OUTPUT_PATH)
+
         match args.arch:
-            case 'tonicnet':
+            case "tonicnet":
+                os.makedirs(DEFAULT_OUTPUT_PATH_MID / "tonicnet", exist_ok=True)
+                os.makedirs(DEFAULT_OUTPUT_PATH / "tonicnet", exist_ok=True)
+
                 for n in range(args.sample):
-                    x = sample_TonicNet_random(load_path=LOADED_MODEL_PATH, temperature=1.0)
+                    print(LOADED_MODEL_PATH)
+                    x = sample_TonicNet_random(
+                        load_path=LOADED_MODEL_PATH, temperature=1.0
+                    )
 
                     stream = indices_to_stream(x)
                     smooth_rhythm(
@@ -126,24 +125,27 @@ def main():
                     )
 
                     # Convert to audio
-                    FluidSynth(sound_font=DEFAULT_SOUNDFONT_PATH).midi_to_audio(
-                        DEFAULT_OUTPUT_PATH_MID / f"tonicnet/sample_{n}.mid",
-                        DEFAULT_OUTPUT_PATH / f"tonicnet/sample_{n}.wav",
-                    )
-            case 'transformer':
+                    synth.synth(f"tonicnet/sample_{n}.mid", f"tonicnet/sample_{n}.wav")
+
+            case "transformer":
+                os.makedirs(DEFAULT_OUTPUT_PATH_MID / "transformer", exist_ok=True)
+                os.makedirs(DEFAULT_OUTPUT_PATH / "transformer", exist_ok=True)
+
                 for n in range(args.sample):
-                    x = sample_TonicNet_random(load_path=LOADED_MODEL_PATH, temperature=1.0)
+                    x = sample_TonicNet_random(
+                        load_path=LOADED_MODEL_PATH, temperature=1.0
+                    )
 
                     stream = indices_to_stream(x)
                     smooth_rhythm(
                         stream,
-                        filename=DEFAULT_OUTPUT_PATH_MID / f"tonicnet/sample_{n}.mid",
+                        filename=DEFAULT_OUTPUT_PATH_MID
+                        / f"transformer/sample_{n}.mid",
                     )
 
                     # Convert to audio
-                    FluidSynth(sound_font=DEFAULT_SOUNDFONT_PATH).midi_to_audio(
-                        DEFAULT_OUTPUT_PATH_MID / f"tonicnet/sample_{n}.mid",
-                        DEFAULT_OUTPUT_PATH / f"tonicnet/sample_{n}.wav",
+                    synth.synth(
+                        f"transformer/sample_{n}.mid", f"transformer/sample_{n}.wav"
                     )
 
     elif args.eval_nn:

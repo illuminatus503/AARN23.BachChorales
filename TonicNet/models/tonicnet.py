@@ -6,14 +6,6 @@ import pytorch_lightning as pl
 from .external import VariationalDropout
 from .external import CrossEntropyTimeDistributedLoss
 
-from ..audio import (
-    TOTAL_BATCHES,
-    TRAIN_BATCHES,
-    N_TOKENS,
-    CV_PHASES,
-    TRAIN_ONLY_PHASES,
-)
-
 from typing import *
 
 
@@ -30,16 +22,16 @@ class TonicNet(pl.LightningModule):
         seq_len=1,
         base_lr=0.2,
         max_lr=0.2,
+        load_path="",
     ):
         super(TonicNet, self).__init__()
         self.save_hyperparameters()
 
         self.embedding = nn.Embedding(
-            self.hparams.nb_tags,
-            self.hparams.nb_rnn_units,
+            self.hparams.nb_tags, self.hparams.nb_rnn_units, device=self.device
         )
-        self.z_embedding = nn.Embedding(80, self.hparams.z_emb_size)
-        # self.pos_emb = nn.Embedding(64, 0) # no es necesario
+        self.z_embedding = nn.Embedding(80, self.hparams.z_emb_size, device=self.device)
+        self.pos_emb = nn.Embedding(64, 0, device=self.device)  # no es necesario
 
         self.dropout_i = VariationalDropout(
             max(0.0, self.hparams.dropout - 0.2), batch_first=True
@@ -56,15 +48,32 @@ class TonicNet(pl.LightningModule):
             num_layers=self.hparams.nb_layers,
             batch_first=True,
             dropout=self.hparams.dropout,
+            device=self.device,
         )
 
         self.dropout_o = VariationalDropout(self.hparams.dropout, batch_first=True)
 
         # output layer which projects back to tag space
-        self.hidden_to_tag = nn.Linear(input_size, self.hparams.nb_tags, bias=False)
+        self.hidden_to_tag = nn.Linear(
+            input_size,
+            self.hparams.nb_tags,
+            bias=False,
+            device=self.device,
+        )
 
         # Loss fn
         self.criterion = CrossEntropyTimeDistributedLoss()
+
+        if load_path:
+            self.load_from_checkpoint(load_path)
+
+    def init_hidden(self):
+        self.hparams.hidden = torch.randn(
+            self.hparams.nb_layers,
+            self.hparams.batch_size,
+            self.hparams.nb_rnn_units,
+            device=self.device,
+        )
 
     def forward(
         self,
@@ -75,29 +84,25 @@ class TonicNet(pl.LightningModule):
     ):
         # reset the RNN hidden state.
         if not sampling:
-            self.seq_len = X.shape[1]
+            self.hparams.seq_len = X.shape[1]
             if reset_hidden:
-                self.hidden = torch.randn(
-                    self.hparams.nb_layers,
-                    self.hparams.batch_size,
-                    self.hparams.nb_rnn_units,
-                )
+                self.init_hidden()
 
         # ---------------------
         # Combine inputs
-        X = self.embedding(X)
-        X = X.view(self.batch_size, self.seq_len, self.nb_rnn_units)
+        X = self.embedding(X.to(self.device))
+        X = X.view(self.hparams.batch_size, self.hparams.seq_len, self.hparams.nb_rnn_units)
 
         # Repeating pitch encoding
-        if self.z_dim > 0:
-            Z = self.z_embedding(z % 80)
-            Z = Z.view(self.batch_size, self.seq_len, self.z_emb_size)
+        if self.hparams.z_dim > 0:
+            Z = self.z_embedding(z.to(self.device) % 80)
+            Z = Z.view(self.hparams.batch_size, self.hparams.seq_len, self.hparams.z_emb_size)
             X = torch.cat((Z, X), 2)
         X = self.dropout_i(X)
 
         # Run through RNN
-        X, self.hidden = self.rnn(X, self.hidden)
-        if self.z_dim > 0:
+        X, self.hparams.hidden = self.rnn(X, self.hparams.hidden)
+        if self.hparams.z_dim > 0:
             X = torch.cat((Z, X), 2)
 
         # Run through linear layer
@@ -112,7 +117,6 @@ class TonicNet(pl.LightningModule):
             optimizer,
             self.hparams.max_lr,
             epochs=60,
-            steps_per_epoch=TRAIN_BATCHES,
             pct_start=0.3,
             anneal_strategy="cos",
             cycle_momentum=True,
@@ -122,6 +126,9 @@ class TonicNet(pl.LightningModule):
             final_div_factor=1000.0,
             last_epoch=-1,
         )
+
+        # steps for epoch is inferred
+
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
     # def training_step(self, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
