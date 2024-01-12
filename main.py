@@ -80,9 +80,14 @@ def main():
     if args.train:
         match args.arch:
             case "tonicnet":
-                train_TonicNet(3000, shuffle_batches=1, train_emb_freq=1, load_path="")
+                train_TonicNet(
+                    traindir=Path("preprocessed_data/training_set"),
+                    valdir=Path("preprocessed_data/validation_set"),
+                )
+                # train_TonicNet(3000, shuffle_batches=1, train_emb_freq=1, load_path="")
             case "transformer":
-                train_Transformer(3000, shuffle_batches=1, load_path="")
+                # train_Transformer(3000, shuffle_batches=1, load_path="")
+                print(NotImplemented)
             case _:
                 raise RuntimeError("NotReachable")
 

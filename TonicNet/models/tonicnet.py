@@ -22,7 +22,6 @@ class TonicNet(pl.LightningModule):
         seq_len=1,
         base_lr=0.2,
         max_lr=0.2,
-        load_path="",
     ):
         super(TonicNet, self).__init__()
         self.save_hyperparameters()
@@ -64,9 +63,6 @@ class TonicNet(pl.LightningModule):
         # Loss fn
         self.criterion = CrossEntropyTimeDistributedLoss()
 
-        if load_path:
-            self.load_from_checkpoint(load_path)
-
     def init_hidden(self):
         self.hparams.hidden = torch.randn(
             self.hparams.nb_layers,
@@ -91,12 +87,16 @@ class TonicNet(pl.LightningModule):
         # ---------------------
         # Combine inputs
         X = self.embedding(X.to(self.device))
-        X = X.view(self.hparams.batch_size, self.hparams.seq_len, self.hparams.nb_rnn_units)
+        X = X.view(
+            self.hparams.batch_size, self.hparams.seq_len, self.hparams.nb_rnn_units
+        )
 
         # Repeating pitch encoding
         if self.hparams.z_dim > 0:
             Z = self.z_embedding(z.to(self.device) % 80)
-            Z = Z.view(self.hparams.batch_size, self.hparams.seq_len, self.hparams.z_emb_size)
+            Z = Z.view(
+                self.hparams.batch_size, self.hparams.seq_len, self.hparams.z_emb_size
+            )
             X = torch.cat((Z, X), 2)
         X = self.dropout_i(X)
 
@@ -113,10 +113,15 @@ class TonicNet(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(self.parameters(), lr=self.hparams.base_lr)
+        
+        # Config. scheduler
+        train_dataset_size = len(self.train_dataloader().dataset)
+        steps_per_epoch = train_dataset_size // self.hparams.batch_size
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer,
             self.hparams.max_lr,
             epochs=60,
+            steps_per_epoch=steps_per_epoch,
             pct_start=0.3,
             anneal_strategy="cos",
             cycle_momentum=True,
@@ -127,15 +132,24 @@ class TonicNet(pl.LightningModule):
             last_epoch=-1,
         )
 
-        # steps for epoch is inferred
-
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
-    # def training_step(self, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
-    #     return super().training_step(*args, **kwargs)
+    def training_step(self, batch, batch_idx):
+        x, y, psx, i, c = batch
+        y_hat = self(x, z=i, train_embedding=True)
+        loss = self.criterion(y_hat, y)
+        self.log("train_loss", loss)
+        return loss
 
-    # def validation_step(self, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
-    #     return super().validation_step(*args, **kwargs)
+    def validation_step(self, batch, batch_idx):
+        x, y, psx, i, c = batch
+        y_hat = self(x, z=i, train_embedding=False)
+        loss = self.criterion(y_hat, y)
+        self.log("val_loss", loss)
+        return loss
+
+    def on_after_backward(self):
+        torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
 
     # def test_step(self, batch, batch_idx):
     #     x, y = batch

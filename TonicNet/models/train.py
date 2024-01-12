@@ -1,41 +1,91 @@
-import os
-import math
-import time
-from datetime import timedelta
+# import os
+# import math
+# import time
+# from datetime import timedelta
 
-import matplotlib.pyplot as plt
+# from pathlib import Path
 
-from torch import save, set_grad_enabled, sum, max
-from torch import optim, cuda, load, device
-from torch.nn.utils import clip_grad_norm_
+# import matplotlib.pyplot as plt
 
-# from ..audio import (
-#     TOTAL_BATCHES,
-#     TRAIN_BATCHES,
-#     N_TOKENS,
-#     CV_PHASES,
-#     TRAIN_ONLY_PHASES,
-# )
-# from ..audio.load_dataset import get_data_set
+# from torch import save, set_grad_enabled, sum, max
+# from torch import optim, cuda, load, device
+# from torch.nn.utils import clip_grad_norm_
+
+import torch
+from torch.utils.data import DataLoader
+
+import pytorch_lightning as pl
+
+from TonicNet.audio import N_TOKENS
+from TonicNet.audio.dataset import BachChoralesDataset
 
 from .tonicnet import TonicNet
-from .transformer import TransformerModel
-from .external import Lookahead, CrossEntropyTimeDistributedLoss
 
-def train_TonicNet():
-    pass
+# from .transformer import TransformerModel
+# from .external import Lookahead, CrossEntropyTimeDistributedLoss
+
+
+def train_TonicNet(traindir, valdir=None, batch_size=32):
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        print(
+            "[WARNING] TRAINING on CPU is very slow. Please, consider using a CUDA-capable machine."
+        )
+        device = torch.device("cpu")
+
+    train_dataset = BachChoralesDataset(traindir, return_I=True, device=device)
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=2
+    )
+
+    if valdir:
+        val_dataset = BachChoralesDataset(valdir, return_I=True, device=device)
+        val_loader = DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=False, num_workers=2
+        )
+
+    # Load the model
+    model = TonicNet(
+        nb_tags=N_TOKENS,
+        z_dim=32,
+        nb_layers=3,
+        nb_rnn_units=256,
+        dropout=0.3,
+    ).to(device)
+    print(model)
+    print()
+
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(
+        monitor="val_loss",
+        filename="tonicnet-{epoch:02d}-{val_loss:.2f}",
+        save_top_k=3,
+        mode="min",
+    )
+
+    trainer = pl.Trainer(
+        max_epochs=3000,
+        precision="16-mixed",
+        callbacks=[checkpoint_callback],
+    )
+    trainer.fit(model, train_loader, val_loader)
+
 
 def TonicNet_lr_finder():
     pass
 
+
 def TonicNet_sanity_test():
     pass
+
 
 def train_Transformer():
     pass
 
+
 def Transformer_lr_finder():
     pass
+
 
 def Transformer_sanity_test():
     pass
