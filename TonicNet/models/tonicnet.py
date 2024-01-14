@@ -8,6 +8,8 @@ import pytorch_lightning as pl
 from .external import VariationalDropout
 from .external import CrossEntropyTimeDistributedLoss
 
+from TonicNet.audio import MAX_SEQ
+
 from typing import *
 
 
@@ -21,45 +23,35 @@ class TonicNet(pl.LightningModule):
         nb_rnn_units=256,
         dropout=0.3,
         batch_size=1,
-        seq_len=1,
+        seq_len=MAX_SEQ,
         base_lr=0.2,
         max_lr=0.2,
     ):
         super(TonicNet, self).__init__()
         self.save_hyperparameters()
 
-        self.embedding = nn.Embedding(
-            self.hparams.nb_tags, self.hparams.nb_rnn_units, device=self.device
-        )
-        self.z_embedding = nn.Embedding(80, self.hparams.z_emb_size, device=self.device)
+        self.embedding = nn.Embedding(nb_tags, nb_rnn_units, device=self.device)
+        self.z_embedding = nn.Embedding(80, z_emb_size, device=self.device)
         self.pos_emb = nn.Embedding(64, 0, device=self.device)  # no es necesario
 
-        self.dropout_i = VariationalDropout(
-            max(0.0, self.hparams.dropout - 0.2), batch_first=True
-        )
+        self.dropout_i = VariationalDropout(max(0.0, dropout - 0.2), batch_first=True)
 
         # INICIALIZAMOS la RNN
-        input_size = (
-            self.hparams.nb_rnn_units
-            + (self.hparams.z_dim > 0) * self.hparams.z_emb_size
-        )
+        input_size = nb_rnn_units + (z_dim > 0) * z_emb_size
         self.rnn = nn.GRU(
             input_size=input_size,
-            hidden_size=self.hparams.nb_rnn_units,
-            num_layers=self.hparams.nb_layers,
+            hidden_size=nb_rnn_units,
+            num_layers=nb_layers,
             batch_first=True,
-            dropout=self.hparams.dropout,
+            dropout=dropout,
             device=self.device,
         )
 
-        self.dropout_o = VariationalDropout(self.hparams.dropout, batch_first=True)
+        self.dropout_o = VariationalDropout(dropout, batch_first=True)
 
         # output layer which projects back to tag space
         self.hidden_to_tag = nn.Linear(
-            input_size,
-            self.hparams.nb_tags,
-            bias=False,
-            device=self.device,
+            input_size, nb_tags, bias=False, device=self.device
         )
 
         # Loss fn
@@ -88,23 +80,19 @@ class TonicNet(pl.LightningModule):
 
         # ---------------------
         # Combine inputs
-        X = self.embedding(X.to(self.device))
-        X = X.view(
-            self.hparams.batch_size, self.hparams.seq_len, self.hparams.nb_rnn_units
-        )
+        X = self.embedding(X.to(self.device).long())
+        X = X.view(-1, self.hparams.seq_len, self.hparams.nb_rnn_units)
 
         # Repeating pitch encoding
-        if self.hparams.z_dim > 0:
+        if z and self.hparams.z_dim > 0:
             Z = self.z_embedding(z.to(self.device) % 80)
-            Z = Z.view(
-                self.hparams.batch_size, self.hparams.seq_len, self.hparams.z_emb_size
-            )
+            Z = Z.view(-1, self.hparams.seq_len, self.hparams.z_emb_size)
             X = torch.cat((Z, X), 2)
         X = self.dropout_i(X)
 
         # Run through RNN
         X, self.hparams.hidden = self.rnn(X, self.hparams.hidden)
-        if self.hparams.z_dim > 0:
+        if z and self.hparams.z_dim > 0:
             X = torch.cat((Z, X), 2)
 
         # Run through linear layer
@@ -115,7 +103,7 @@ class TonicNet(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(self.parameters(), lr=self.hparams.base_lr)
-        
+
         # Config. scheduler
         train_dataset_size = len(self.train_dataloader().dataset)
         steps_per_epoch = train_dataset_size // self.hparams.batch_size
@@ -153,8 +141,8 @@ class TonicNet(pl.LightningModule):
     def on_after_backward(self):
         torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
 
-    def summary(self, *args):
-        summary(self, *args)
+    def summary(self, input_size):
+        summary(self, input_size=input_size)
 
     # def test_step(self, batch, batch_idx):
     #     x, y = batch

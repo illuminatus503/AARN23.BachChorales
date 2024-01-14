@@ -5,6 +5,10 @@ from pathlib import Path
 from TonicNet.audio.preprocessing import bach_chorales_classic
 from TonicNet.audio.utils import indices_to_stream, smooth_rhythm
 from TonicNet.audio.synthesizer import Synthesizer
+from TonicNet.audio import N_TOKENS
+
+from TonicNet.models import TonicNet
+from TonicNet.models.utils import print_model_summary
 
 from TonicNet.models.train import (
     train_TonicNet,
@@ -37,6 +41,7 @@ def main():
     --eval_nn [-e]              evaluate pretrained model on test set
     --sample [-s]               sample from pretrained model
     --sanity_check [-scheck]    check if the model is correctly structured
+    --summary [-sum]            make a summary of the model
     """
 
     parser = argparse.ArgumentParser(
@@ -51,6 +56,7 @@ def main():
     parser.add_argument("-e", "--eval_nn", action="store_true")
     parser.add_argument("-v", "--version", action="store_true")
     parser.add_argument("-m", "--model", type=str, default=DEFAULT_LOAD_MODEL)
+    parser.add_argument("-sum", "--summary", action="store_true")
 
     parser.add_argument("--jsf", default=None, choices=["all", "only", "fake", None])
     parser.add_argument(
@@ -62,10 +68,8 @@ def main():
 
     if args.version:
         print(VERSION_STR)
-        exit(0)
 
-    # Parse the dataset generation
-    if args.jsf is not None:
+    elif args.jsf is not None:
         match args.jsf:
             case "only":
                 bach_chorales_classic(transpose=True, jsf_aug="only")
@@ -75,9 +79,27 @@ def main():
                 bach_chorales_classic(transpose=True, jsf_aug="all")
 
         print("Dataset preprocessed successfully.")
-        exit(0)
 
-    if args.train:
+    elif args.summary:
+        match args.arch:
+            case "tonicnet":
+                model = TonicNet(
+                    nb_tags=N_TOKENS,
+                    z_dim=32,
+                    nb_layers=3,
+                    nb_rnn_units=256,
+                    dropout=0.3,
+                )
+
+            case "transformer":
+                raise NotImplementedError
+
+            case _:
+                raise RuntimeError("NotReachable")
+        
+        print_model_summary(model)
+
+    elif args.train:
         match args.arch:
             case "tonicnet":
                 train_TonicNet(

@@ -54,11 +54,7 @@ def train_TonicNet(traindir, valdir=None, batch_size=32):
         dropout=0.3,
     ).to(device)
     
-    a = next(iter(train_dataset))[0]
-    print(a)
-
-    model.summary(a.shape)
-
+    # Load the trainer properties
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor="val_loss",
         filename="tonicnet-{epoch:02d}-{val_loss:.2f}",
