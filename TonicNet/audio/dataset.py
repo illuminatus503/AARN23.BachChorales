@@ -8,9 +8,16 @@ from typing import *
 
 
 class BachChoralesDataset(Dataset):
-    def __init__(self, datadir: Union[str, Path], return_I=False, device=None):
+    def __init__(
+        self,
+        datadir: Union[str, Path],
+        return_I=False,
+        lazy=False,
+        device=None,
+    ):
         self.data_path = Path(datadir)
         self.return_I = return_I
+        self.lazy = lazy
 
         if device:
             self.device = device
@@ -57,10 +64,43 @@ class BachChoralesDataset(Dataset):
             ):
                 raise ValueError("Invalid data length for I and C tracks")
 
-    def __len__(self):
-        return len(self.X_filenames)
+        if not lazy:
+            self._load_data()
 
-    def __getitem__(self, idx):
+    def _load_data(self):
+        self.X_array = [
+            torch.load(self._Xdir / file, map_location=self.device)
+            for file in self.X_filenames
+        ]
+
+        self.Y_array = [
+            torch.load(self._Ydir / file, map_location=self.device)
+            for file in self.Y_filenames
+        ]
+
+        self.P_array = [
+            torch.load(self._Pdir / file, map_location=self.device)
+            for file in self.P_filenames
+        ]
+
+        if self.return_I:
+            self.I_array = [
+                torch.load(self._Idir / file, map_location=self.device)
+                for file in self.I_filenames
+            ]
+
+            self.C_array = [
+                torch.load(self._Cdir / file, map_location=self.device)
+                for file in self.C_filenames
+            ]
+
+    def _get(self, idx):
+        r = [self.X_array[idx], self.Y_array[idx], self.P_array[idx]]
+        if self.return_I:
+            r += [self.I_array[idx], self.C_array[idx]]
+        return tuple(r)
+
+    def _lazy_get(self, idx):
         X_file = self._Xdir / self.X_filenames[idx]
         Y_file = self._Ydir / self.Y_filenames[idx]
         P_file = self._Pdir / self.P_filenames[idx]
@@ -79,3 +119,12 @@ class BachChoralesDataset(Dataset):
             return X, Y, P, I, C
 
         return X, Y, P
+
+    def __len__(self):
+        return len(self.X_filenames)
+
+    def __getitem__(self, idx):
+        if self.lazy:
+            return self._lazy_get(idx)
+
+        return self._get(idx)

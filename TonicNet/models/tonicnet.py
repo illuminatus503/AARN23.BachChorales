@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from torchsummary import summary
+
 import pytorch_lightning as pl
 
 from .external import VariationalDropout
@@ -150,6 +152,9 @@ class TonicNet(pl.LightningModule):
 
     def on_after_backward(self):
         torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
+
+    def summary(self, *args):
+        summary(self, *args)
 
     # def test_step(self, batch, batch_idx):
     #     x, y = batch
