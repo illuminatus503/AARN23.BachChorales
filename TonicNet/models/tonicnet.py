@@ -57,15 +57,26 @@ class TonicNet(pl.LightningModule):
         #     dropout=dropout,
         # )
 
+        # Define output layer which projects back to tag space
         self.dropout_o = VariationalDropout(dropout, batch_first=True)
-
-        # output layer which projects back to tag space
         self.hidden_to_tag = nn.Linear(
             input_size, nb_tags, bias=False, device=self.device
         )
 
-        # Loss fn
+        # Set loss fn
         self.criterion = CrossEntropyTimeDistributedLoss()
+
+        # Train dataset:
+        # Create the dataset
+        self.train_dataset = BachChoralesDataset(
+            self.hparams.train_dir,
+            device=self.device,
+            lazy=True,
+        )
+
+        # Set the batch_size to a single batch
+        self.hparams.batch_size = len(self.train_dataset) + 76
+        self.step_size = 3 * self.hparams.batch_size
 
     def init_hidden(self):
         self.hparams.hidden = torch.randn(
@@ -76,19 +87,10 @@ class TonicNet(pl.LightningModule):
         )
 
     def train_dataloader(self):
-        # Create the dataset
-        train_dataset = BachChoralesDataset(
-            self.hparams.train_dir,
-            return_I=True,
-            device=self.device,
-            lazy=False,
-        )
-
-        # Create a DataLoader from the dataset
         train_loader = DataLoader(
-            train_dataset,
-            batch_size=32,
-            shuffle=True,
+            self.train_dataset,
+            batch_size=self.hparams.batch_size,
+            shuffle=False, # Error!! No shuffle
             num_workers=4,
             persistent_workers=True,
         )
@@ -113,7 +115,7 @@ class TonicNet(pl.LightningModule):
         X = X.view(-1, self.hparams.seq_len, self.hparams.nb_rnn_units)
 
         # Repeating pitch encoding
-        if z and self.hparams.z_dim > 0:
+        if z is not None and self.hparams.z_dim > 0:
             Z = self.z_embedding(z.to(self.device) % 80)
             Z = Z.view(-1, self.hparams.seq_len, self.hparams.z_emb_size)
             X = torch.cat((Z, X), 2)
@@ -121,7 +123,7 @@ class TonicNet(pl.LightningModule):
 
         # Run through RNN
         X, self.hparams.hidden = self.rnn(X, self.hparams.hidden)
-        if z and self.hparams.z_dim > 0:
+        if z is not None and self.hparams.z_dim > 0:
             X = torch.cat((Z, X), 2)
 
         # Run through linear layer
@@ -134,13 +136,11 @@ class TonicNet(pl.LightningModule):
         optimizer = torch.optim.SGD(self.parameters(), lr=self.hparams.base_lr)
 
         # Config. scheduler
-        train_dataset_size = len(self.train_dataloader().dataset)
-        steps_per_epoch = train_dataset_size // self.hparams.batch_size
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer,
             self.hparams.max_lr,
             epochs=60,
-            steps_per_epoch=steps_per_epoch,
+            steps_per_epoch=self.step_size,
             pct_start=0.3,
             anneal_strategy="cos",
             cycle_momentum=True,
@@ -154,8 +154,8 @@ class TonicNet(pl.LightningModule):
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
     def training_step(self, batch, batch_idx):
-        x, y, psx, i, c = batch
-        y_hat = self(x, z=i, train_embedding=True)
+        x, y, _, i, _ = batch
+        y_hat = self(x, z=i)
         loss = self.criterion(y_hat, y)
         self.log("train_loss", loss)
         return loss

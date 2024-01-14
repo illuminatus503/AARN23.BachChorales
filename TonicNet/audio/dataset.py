@@ -11,7 +11,6 @@ class BachChoralesDataset(Dataset):
     def __init__(
         self,
         datadir: Union[str, Path],
-        return_I=False,
         lazy=False,
         device=None,
     ):
@@ -24,9 +23,7 @@ class BachChoralesDataset(Dataset):
         self.data_path = Path(datadir)
 
         # Select the tracks which will be used in this dset
-        track_names = ["X", "Y", "P"]
-        if return_I:
-            track_names += ["I", "C"]
+        track_names = ["X", "Y", "P", "I", "C"]
 
         # Retrieve all names of files to be loaded, per track
         self._track_filenames = {

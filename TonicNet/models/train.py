@@ -1,17 +1,14 @@
-import os
 import multiprocessing
 import torch
-from torch.utils.data import DataLoader
 
 import pytorch_lightning as pl
 
 from TonicNet.audio import N_TOKENS
-from TonicNet.audio.dataset import BachChoralesDataset
 
 from .tonicnet import TonicNet
 
 
-def train_TonicNet(traindir, valdir=None, batch_size=32):
+def train_TonicNet(traindir, valdir=None):
     multiprocessing.set_start_method("spawn", True)
 
     if torch.cuda.is_available():
@@ -30,6 +27,7 @@ def train_TonicNet(traindir, valdir=None, batch_size=32):
         z_dim=32,
         nb_layers=3,
         nb_rnn_units=256,
+        batch_size=1,
         dropout=0.3,
     ).to(device)
 
@@ -40,6 +38,7 @@ def train_TonicNet(traindir, valdir=None, batch_size=32):
         save_top_k=3,
         mode="min",
     )
+    return 
 
     trainer = pl.Trainer(
         max_epochs=3000,
@@ -67,33 +66,6 @@ def Transformer_lr_finder():
 
 def Transformer_sanity_test():
     pass
-
-
-# def TonicNet_lr_finder(train_emb_freq=3000, load_path=""):
-#     train_TonicNet(
-#         epochs=3,
-#         save_model=False,
-#         load_path=load_path,
-#         shuffle_batches=True,
-#         num_batches=TRAIN_BATCHES,
-#         val=False,
-#         train_emb_freq=train_emb_freq,
-#         lr_range_test=True,
-#     )
-
-
-# def TonicNet_sanity_test(num_batches=1, train_emb_freq=3000, load_path=""):
-#     train_TonicNet(
-#         epochs=200,
-#         save_model=False,
-#         load_path=load_path,
-#         shuffle_batches=False,
-#         num_batches=num_batches,
-#         val=1,
-#         train_emb_freq=train_emb_freq,
-#         lr_range_test=False,
-#         sanity_test=True,
-#     )
 
 
 # def train_TonicNet(

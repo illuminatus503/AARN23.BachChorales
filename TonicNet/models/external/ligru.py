@@ -28,6 +28,8 @@ class LiGRUCell(nn.Module):
         x = x.view(batch_size, -1)
 
         # Stack and apply weights
+        print(x.shape)
+        print(h.shape)
         stack = torch.cat((x, h), dim=1)
         out_gates = stack @ self.wz
 
@@ -61,15 +63,15 @@ class LiGRU(nn.Module):
             ]
         )
 
-    def forward(self, x):
+    def forward(self, x, hidden_states=None):
         # x is now expected to have shape [batch_size, sequence_length, input_size]
         batch_size, sequence_length, _ = x.size()
 
         # Initialize the hidden state for each layer
-        hidden_states = [
-            torch.zeros(batch_size, self.hidden_size, device=x.device)
-            for _ in range(self.num_layers)
-        ]
+        if hidden_states is None:
+            hidden_states = torch.zeros(
+                self.num_layers, batch_size, self.hidden_size, device=x.device
+            )
 
         # Process the input sequence one time step at a time
         for t in range(sequence_length):
