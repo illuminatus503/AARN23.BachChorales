@@ -1,0 +1,13 @@
+train_dir: !!python/object/apply:pathlib.PosixPath
+- preprocessed_data
+- training_set
+nb_tags: 98
+nb_layers: 3
+z_dim: 32
+z_emb_size: 32
+nb_rnn_units: 256
+dropout: 0.3
+batch_size: 1
+seq_len: 2880
+base_lr: 0.2
+max_lr: 0.2

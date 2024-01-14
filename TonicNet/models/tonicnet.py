@@ -1,14 +1,17 @@
 import torch
 import torch.nn as nn
-
-from torchsummary import summary
+from torch.utils.data import DataLoader
 
 import pytorch_lightning as pl
 
-from .external import VariationalDropout
-from .external import CrossEntropyTimeDistributedLoss
+from TonicNet.audio.dataset import BachChoralesDataset
+from TonicNet.models.utils import print_model_summary
 
-from TonicNet.audio import MAX_SEQ
+from TonicNet.models.external import (
+    VariationalDropout,
+    CrossEntropyTimeDistributedLoss,
+    LiGRU,
+)
 
 from typing import *
 
@@ -16,6 +19,7 @@ from typing import *
 class TonicNet(pl.LightningModule):
     def __init__(
         self,
+        train_dir,
         nb_tags,
         nb_layers=3,
         z_dim=32,
@@ -23,7 +27,7 @@ class TonicNet(pl.LightningModule):
         nb_rnn_units=256,
         dropout=0.3,
         batch_size=1,
-        seq_len=MAX_SEQ,
+        seq_len=1,
         base_lr=0.2,
         max_lr=0.2,
     ):
@@ -46,6 +50,12 @@ class TonicNet(pl.LightningModule):
             dropout=dropout,
             device=self.device,
         )
+        # self.rnn = LiGRU(
+        #     input_size,
+        #     hidden_size=nb_rnn_units,
+        #     num_layers=nb_layers,
+        #     dropout=dropout,
+        # )
 
         self.dropout_o = VariationalDropout(dropout, batch_first=True)
 
@@ -64,6 +74,25 @@ class TonicNet(pl.LightningModule):
             self.hparams.nb_rnn_units,
             device=self.device,
         )
+
+    def train_dataloader(self):
+        # Create the dataset
+        train_dataset = BachChoralesDataset(
+            self.hparams.train_dir,
+            return_I=True,
+            device=self.device,
+            lazy=False,
+        )
+
+        # Create a DataLoader from the dataset
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=32,
+            shuffle=True,
+            num_workers=4,
+            persistent_workers=True,
+        )
+        return train_loader
 
     def forward(
         self,
@@ -131,18 +160,12 @@ class TonicNet(pl.LightningModule):
         self.log("train_loss", loss)
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        x, y, psx, i, c = batch
-        y_hat = self(x, z=i, train_embedding=False)
-        loss = self.criterion(y_hat, y)
-        self.log("val_loss", loss)
-        return loss
-
-    def on_after_backward(self):
-        torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
-
-    def summary(self, input_size):
-        summary(self, input_size=input_size)
+    # def validation_step(self, batch, batch_idx):
+    #     x, y, psx, i, c = batch
+    #     y_hat = self(x, z=i, train_embedding=False)
+    #     loss = self.criterion(y_hat, y)
+    #     self.log("val_loss", loss)
+    #     return loss
 
     # def test_step(self, batch, batch_idx):
     #     x, y = batch
@@ -152,3 +175,9 @@ class TonicNet(pl.LightningModule):
 
     # def predict_step(self, *args: Any, **kwargs: Any) -> Any:
     #     return super().predict_step(*args, **kwargs)
+
+    def on_after_backward(self):
+        torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
+
+    def summary(self):
+        print_model_summary(self)

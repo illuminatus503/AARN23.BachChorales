@@ -1,16 +1,5 @@
-# import os
-# import math
-# import time
-# from datetime import timedelta
-
-# from pathlib import Path
-
-# import matplotlib.pyplot as plt
-
-# from torch import save, set_grad_enabled, sum, max
-# from torch import optim, cuda, load, device
-# from torch.nn.utils import clip_grad_norm_
-
+import os
+import multiprocessing
 import torch
 from torch.utils.data import DataLoader
 
@@ -21,12 +10,12 @@ from TonicNet.audio.dataset import BachChoralesDataset
 
 from .tonicnet import TonicNet
 
-# from .transformer import TransformerModel
-# from .external import Lookahead, CrossEntropyTimeDistributedLoss
-
 
 def train_TonicNet(traindir, valdir=None, batch_size=32):
+    multiprocessing.set_start_method("spawn", True)
+
     if torch.cuda.is_available():
+        # os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Set to the GPU device you want to use
         device = torch.device("cuda")
     else:
         print(
@@ -34,26 +23,16 @@ def train_TonicNet(traindir, valdir=None, batch_size=32):
         )
         device = torch.device("cpu")
 
-    train_dataset = BachChoralesDataset(traindir, return_I=True, device=device)
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=2
-    )
-
-    if valdir:
-        val_dataset = BachChoralesDataset(valdir, return_I=True, device=device)
-        val_loader = DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=False, num_workers=2
-        )
-
     # Load the model
     model = TonicNet(
+        train_dir=traindir,
         nb_tags=N_TOKENS,
         z_dim=32,
         nb_layers=3,
         nb_rnn_units=256,
         dropout=0.3,
     ).to(device)
-    
+
     # Load the trainer properties
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor="val_loss",
@@ -67,7 +46,7 @@ def train_TonicNet(traindir, valdir=None, batch_size=32):
         precision="16-mixed",
         callbacks=[checkpoint_callback],
     )
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model)
 
 
 def TonicNet_lr_finder():

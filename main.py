@@ -8,7 +8,6 @@ from TonicNet.audio.synthesizer import Synthesizer
 from TonicNet.audio import N_TOKENS
 
 from TonicNet.models import TonicNet
-from TonicNet.models.utils import print_model_summary
 
 from TonicNet.models.train import (
     train_TonicNet,
@@ -96,8 +95,8 @@ def main():
 
             case _:
                 raise RuntimeError("NotReachable")
-        
-        print_model_summary(model)
+
+        model.summary()
 
     elif args.train:
         match args.arch:
