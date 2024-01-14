@@ -2,9 +2,7 @@
 
 
 Código del proyecto de la asignatura *Aprendizaje Automático y Redes Neuronales* (AARN) del grado en Ingeniería Informática, de la UPV/EHU (curso 2023-24). Proyecto de final de asignatura. 
-Desarrollado por ... (insertar autores).
-
-El proyecto original está basado en el código de ..., que a su vez es el código del artículo ... de ....
+Desarrollado por David Cuenca Marcos, a partir del trabajo original de O. Peracha (TonicNet, https://github.com/omarperacha/TonicNet).
 
 <b>Requisitos:</b>
 - Python 3 (probado con la versión 3.11.7)
@@ -15,38 +13,25 @@ El proyecto original está basado en el código de ..., que a su vez es el códi
 
 <b>Preparación del dataset:</b>
 
-To prepare the vanilla JSB Chorales dataset with canonical train/validation/test split:
+La preparación del dataset en train/validation/test splits se ejecuta mediante el comando:
 ```
-python main.py --gen_dataset
-```
-
-To prepare dataset augmented with [JS Fake Chorales](https://github.com/omarperacha/js-fakes):
-```
-python main.py --gen_dataset --jsf
+python main.py --jsf only
 ```
 
-To prepare dataset for training on JS Fake Chorales only:
-```
-python main.py --gen_dataset --jsf_only
-```
+<b>Para entrenar el modelo a partir desde cero, se puede usar el comando:</b>
 
-<b>Train Model from Scratch:</b>
-
-First run `--gen_dataset` with any optional 2nd argument, then:
+Primero, es recomendable ejecutar el comando del punto anterior. De lo contrario, no será posible ejecutar el entrenamiento.
 ```
 python main.py --train
 ```
 
-Training requires 60 epochs, taking roughly 3-6 hours on GPU
+Un entrenamiento de 60 epochs lleva alrededor de 3-6 horas en una sola GPU.
 
-<b>Evaluate Pre-trained Model on Test Set:</b>
+<b>Generación de música usando random sample: </b>
 
-```
-python main.py --eval_nn
-```
-
-<b>Sample with Pre-trained Model (via random sampling):</b>
+Se puede generar música usando random sample siguiendo el siguiente comando e indicando el número de muestras a generar.
+Para cargar un modelo concreto, basta indicar el path a dicho modelo preentrenado después del flag ```--model```.
 
 ```
-python main.py --sample
+python main.py --sample N_SAMPLES
 ```
