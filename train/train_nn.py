@@ -28,6 +28,8 @@ File containing functions which train various neural networks defined in train.m
 CV_PHASES = ["train", "val"]
 TRAIN_ONLY_PHASES = ["train"]
 
+# TRAIN_BATCHES = 1
+
 
 def train_TonicNet(
     epochs=30,
@@ -70,12 +72,12 @@ def train_TonicNet(
         model.factorize_model()
 
         # Print the status of the model after factorization
-        # num_params_after = 0
-        # for p in model.parameters():
-        #     if p.requires_grad:
-        #         num_params_after += p.numel()
-        # print(f"Number of parameters (after factorization): {num_params_after}")
-        # print(f"Reduction of params.? {num_params_before / num_params_after - 1:^2.2%}")
+        num_params_after = 0
+        for p in model.parameters():
+            if p.requires_grad:
+                num_params_after += p.numel()
+        print(f"Number of parameters (after factorization): {num_params_after}")
+        print(f"Reduction of params.? {num_params_before / num_params_after - 1:^2.2%}")
 
     print()
     print(model)
@@ -84,7 +86,7 @@ def train_TonicNet(
     if cuda.is_available():
         model.cuda()
 
-    base_lr = 0.2
+    base_lr = 2e-3
     max_lr = 0.2
 
     if lr_range_test:

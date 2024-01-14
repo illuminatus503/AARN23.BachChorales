@@ -71,11 +71,11 @@ def main():
                 ):
                     continue
 
-    if args.train:
+    elif args.train:
         # Train, from pretrained or not
         train_TonicNet(
             epochs=3000,
-            shuffle_batches=1,
+            shuffle_batches=True,
             train_emb_freq=1,
             load_path=Path(args.model) if args.model else "",
             factorize=args.factorize,
@@ -89,21 +89,22 @@ def main():
     elif args.find_lr:
         # Find optimal learning rate, from pretrained or not
         train_TonicNet(
-            epochs=3,
-            save_model=False,
+            epochs=60,
+            save_model=True,
             load_path=Path(args.model) if args.model else "",
-            shuffle_batches=True,
-            num_batches=TRAIN_BATCHES,
-            val=False,
-            train_emb_freq=1,
-            lr_range_test=True,
+            shuffle_batches=False,
+            num_batches=1,
+            val=True,
+            train_emb_freq=60,
+            lr_range_test=False,
+            sanity_test=False,
             factorize=args.factorize,
         )
 
     elif args.sanity_test:
         # Sanity check, with one batch. Pretrained or not.
         train_TonicNet(
-            epochs=200,
+            epochs=60,
             save_model=False,
             load_path=Path(args.model) if args.model else "",
             shuffle_batches=False,

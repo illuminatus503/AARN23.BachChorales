@@ -24,6 +24,9 @@ class TonicNet(nn.Module):
     ):
         super(TonicNet, self).__init__()
 
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device('cpu')
+
         self.nb_layers = nb_layers
         self.nb_rnn_units = nb_rnn_units
         self.batch_size = batch_size
@@ -38,14 +41,14 @@ class TonicNet(nn.Module):
         self.__build_model()
 
     def __build_model(self):
-        self.embedding = nn.Embedding(self.nb_tags, self.nb_rnn_units)
-        self.z_embedding = nn.Embedding(80, self.z_emb_size)
+        self.embedding = nn.Embedding(self.nb_tags, self.nb_rnn_units).to(self.device)
+        self.z_embedding = nn.Embedding(80, self.z_emb_size).to(self.device)
         # *Unused* but key exists in state_dict
         self.pos_emb = nn.Embedding(64, 0)
 
         self.dropout_i = VariationalDropout(
             max(0.0, self.dropout - 0.2), batch_first=True
-        )
+        ).to(self.device)
 
         # design RNN (save params. for later)
         self.input_size = self.nb_rnn_units
@@ -67,20 +70,22 @@ class TonicNet(nn.Module):
             num_layers=self.nb_layers,
             batch_first=True,
             dropout=self.dropout,
+        ).to(self.device)
+
+        self.dropout_o = VariationalDropout(self.dropout, batch_first=True).to(
+            self.device
         )
 
-        self.dropout_o = VariationalDropout(self.dropout, batch_first=True)
-
         # output layer which projects back to tag space
-        self.hidden_to_tag = nn.Linear(self.input_size, self.nb_tags, bias=False)
+        self.hidden_to_tag = nn.Linear(self.input_size, self.nb_tags, bias=False).to(
+            self.device
+        )
 
-    def __init_hidden(self):
+    def init_hidden(self):
         # the weights are of the form (nb_layers, batch_size, nb_rnn_units)
-        hidden_a = torch.randn(self.nb_layers, self.batch_size, self.nb_rnn_units)
-
-        if torch.cuda.is_available():
-            hidden_a = hidden_a.cuda()
-
+        hidden_a = torch.randn(self.nb_layers, self.batch_size, self.nb_rnn_units).to(
+            self.device
+        )
         return hidden_a
 
     def factorize_model(self):
@@ -88,11 +93,11 @@ class TonicNet(nn.Module):
         self.embedding = tltorch.FactorizedEmbedding.from_embedding(
             self.embedding,
             rank=0.1,  # 1/10 of the original params.
-        )
+        ).to(self.device)
         self.z_embedding = tltorch.FactorizedEmbedding.from_embedding(
             self.z_embedding,
             rank=0.1,  # 1/10 of the original params.
-        )
+        ).to(self.device)
 
         # ! Tensorization of the GRU
         self.rnn.factorize(rank=0.01, factorization="tucker")
@@ -103,16 +108,19 @@ class TonicNet(nn.Module):
             rank=0.1,  # 1/10 of orig. params.
             # factorization="blocktt",  # default: 'cp'
             # checkpointing=True,  # default: False
-        )
+        ).to(self.device)
 
     def forward(
         self, X, z=None, train_embedding=True, sampling=False, reset_hidden=True
     ):
+        X = X.to(self.device)
+        z = z.to(self.device)
+        
         # reset the RNN hidden state.
         if not sampling:
             self.seq_len = X.shape[1]
             if reset_hidden:
-                self.hidden = self.__init_hidden()
+                self.hidden = self.init_hidden()
 
         self.embedding.weight.requires_grad = train_embedding
 

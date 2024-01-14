@@ -5,3 +5,4 @@ train/val_set/*
 
 .tltorch_build/*
 .pytest_cache/*
+preprocessed_data/*

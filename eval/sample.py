@@ -33,7 +33,7 @@ def sample_TonicNet_random(load_path, max_tokens=2999, temperature=1.0):
 
     model.eval()
     model.seq_len = 1
-    model.hidden = model.__init_hidden()
+    model.hidden = model.init_hidden()
     model.zero_grad()
 
     inverse_t = pickle.load(open("tokenisers/inverse_pitch_only.p", mode="rb"))
@@ -124,7 +124,7 @@ def sample_TonicNet_beam_search(load_path, max_tokens=2999, beam_width=10, alpha
 
     model.eval()
     model.seq_len = 1
-    model.hidden = model.__init_hidden()
+    model.hidden = model.init_hidden()
     model.zero_grad()
 
     inverse_t = pickle.load(open("tokenisers/inverse_pitch_only.p", mode="rb"))
